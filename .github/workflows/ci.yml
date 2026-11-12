@@ -64,9 +64,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: protoc
         run: |
+          # protoc 36.2's zips, pinned by SHA-256 (protobuf publishes no
+          # checksums: these are the zips as downloaded on 12 Nov 2026).
           version=36.2
-          case "$(uname -m)" in aarch64|arm64) arch=aarch_64 ;; *) arch=x86_64 ;; esac
+          case "$(uname -m)" in
+              aarch64|arm64) arch=aarch_64 sha256=8b8f18bd2b30346efbc698dd5a73dd7c805f3ef8380f6dfc95c768f3f1852f6a ;;
+              *) arch=x86_64 sha256=121f6c7afe1d4d0e3ea6aab9432038599250134cbf4474cb1167d2c7decd4278 ;;
+          esac
           curl -fsSL -o "$RUNNER_TEMP/protoc.zip" "https://github.com/protocolbuffers/protobuf/releases/download/v$version/protoc-$version-linux-$arch.zip"
+          echo "$sha256  $RUNNER_TEMP/protoc.zip" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/protoc" && python3 -I -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$RUNNER_TEMP/protoc.zip" "$RUNNER_TEMP/protoc"
           chmod +x "$RUNNER_TEMP/protoc/bin/protoc"
       - name: The protos' Swift matches the protos
