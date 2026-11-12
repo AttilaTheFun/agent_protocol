@@ -61,6 +61,14 @@ tools/generate.sh              # the protos' Swift, after changing a proto (need
 tools/build_static.sh out      # agent-wrapper as one static file per Linux architecture (Swift 6.4.0)
 ```
 
+Releases go through Reviews, as Logan's other repositories' do. CI's `run:
+release` (by hand, on main, with `version`) runs verify, the tests and their
+proof, and the static build. Then it proposes a draft release, `v<version>`,
+with `proof.zip`, `proof-diff.json`, `agent-wrapper-linux-arm64` and `-amd64`,
+and `SHA256SUMS`. Logan's Release in Reviews publishes it, which makes the
+tag. Depend on a release by version:
+`.package(url: "https://github.com/AttilaTheFun/agent_protocol.git", from: "0.1.0")`.
+
 `tools/build_static.sh` builds with Swift's static Linux SDK (musl), so
 `agent-wrapper-linux-arm64` and `-amd64` run in any container image, with
 nothing to install. gRPC's TLS (NIOSSL's BoringSSL) is C++, so the script

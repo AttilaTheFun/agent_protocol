@@ -1,17 +1,45 @@
 name: CI
-# agent_protocol's CI, as Reviews' policy for Logan's repositories has it
-# (AttilaTheFun/reviews, docs/CI_POLICY.md): automated CI only builds.
+# agent_protocol's CI, as Reviews' policy for Logan's protected repositories
+# has it (AttilaTheFun/reviews, docs/CI_POLICY.md): automated CI only builds,
+# and the tests run by hand. As MultiPass's (AttilaTheFun/multipass).
 #
-# - A pull request, and each commit on main, runs `container`, the required
-#   check: in one of Shireworks' single-use Linux containers, it checks the
-#   protos' Swift matches the protos, and builds the package and its tests.
-#   A fork's pull request runs nothing here.
-# - `verify`, by hand (workflow_dispatch): the tests.
+# - A pull request runs one job, `container`, the required check: in one of
+#   Shireworks' single-use Linux containers (agent_protocol-jit, a runner of
+#   Visor's agent image, which has Swift), it checks the protos' Swift matches
+#   the protos and builds the package and its tests. A newer push cancels its
+#   run. A fork's pull request runs nothing here: no self-hosted runner ever
+#   runs a fork's code.
+# - Each commit on main runs `container` too, so main's head has its check.
+# - By hand (workflow_dispatch, `run`):
+#   - `verify` (main or a branch): the tests and the proof of them
+#     (AttilaTheFun/reviews' proof format 2: a tests item, with its log),
+#     kept as the `proof` artifact with its comparison with the prior
+#     release's (proof-diff.json). Its success is the commit verified.
+#   - `release`, with `version` (main only): verify, and the static
+#     agent-wrapper for arm64 and amd64 (tools/build_static.sh); only once
+#     both pass, a draft release v<version> on the commit naming the run,
+#     with proof.zip, the two binaries and SHA256SUMS (quoted in its notes).
+#     No agent makes a draft or a tag: the job's token does.
+# - Logan's Release in Reviews publishes the draft, which makes its tag:
+#   `release` checks the commit is on main and was verified.
 on:
   pull_request:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      run:
+        description: "verify: the tests and the proof. release: verify and the static agent-wrapper, then a draft release of version."
+        type: choice
+        options: [verify, release]
+        default: verify
+      version:
+        description: "release: the version proposed, MAJOR.MINOR.PATCH"
+        type: string
+        required: false
+  # Logan's Release in Reviews publishes the draft, which makes its v* tag.
+  release:
+    types: [published]
 concurrency:
   group: >-
     ${{ github.event_name == 'pull_request'
@@ -20,6 +48,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
+  # The release job asks which run verified its commit (verified_run.sh).
   actions: read
 defaults:
   run:
@@ -43,7 +72,9 @@ jobs:
       - name: The protos' Swift matches the protos
         run: PROTOC="$RUNNER_TEMP/protoc/bin/protoc" tools/generate.sh --check
       - name: The package and its tests
-        run: swift build --build-tests
+        run: |
+          swift --version
+          swift build --build-tests
 
   verify:
     if: github.event_name == 'workflow_dispatch'
@@ -51,4 +82,100 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - run: swift test
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: The package and its tests
+        run: swift build --build-tests
+      - name: The tests
+        run: swift test --skip-build --filter '^AgentWrapperTests\.' 2>&1 | tee "$RUNNER_TEMP/wrapper.log"
+      # Untrusted text reaches the shell through env, never ${{ }} in run.
+      - name: The proof
+        if: ${{ !cancelled() }}
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          version="${VERSION:-$(git tag --list 'v[0-9]*' --sort=-v:refname | head -1 | sed 's/^v//')}"
+          python3 -I tools/ci/tests_proof.py "$RUNNER_TEMP/proof" "${version:-0.0.0}" \
+            "tests/linux/agent-wrapper=agent-wrapper on Linux=$RUNNER_TEMP/wrapper.log"
+      # The proof's comparison with the prior release's (proof-diff.json),
+      # beside proof.json: Reviews shows it at once. Never fails the job.
+      - name: The proof's comparison
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ -f "$RUNNER_TEMP/proof/proof.json" ] || exit 0
+          python3 -I tools/ci/proof_diff.py make "$RUNNER_TEMP/proof" || echo "::warning::the proof's comparison wasn't made"
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: proof
+          path: ${{ runner.temp }}/proof
+          retention-days: 90
+
+  # The static agent-wrapper, for each architecture (tools/build_static.sh).
+  static:
+    if: github.event_name == 'workflow_dispatch' && inputs.run == 'release'
+    runs-on: [self-hosted, agent_protocol-jit]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - run: tools/build_static.sh "$RUNNER_TEMP/static"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: static
+          path: ${{ runner.temp }}/static
+          if-no-files-found: error
+          retention-days: 30
+
+  # The draft release, once verify and the static build passed
+  # (tools/ci/propose_release.sh).
+  propose:
+    needs: [verify, static]
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      inputs.run == 'release' && needs.verify.result == 'success' && needs.static.result == 'success'
+    runs-on: [self-hosted, agent_protocol-jit]
+    timeout-minutes: 10
+    permissions:
+      # The draft release.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: proof
+          path: ${{ runner.temp }}/proof
+      - uses: actions/download-artifact@v4
+        with:
+          name: static
+          path: ${{ runner.temp }}/static
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: tools/ci/propose_release.sh "$VERSION" "$RUNNER_TEMP/proof" "$RUNNER_TEMP/static"
+
+  # Logan's Release in Reviews: the tag's commit must be on main and
+  # verified (tools/ci/verified_run.sh: a run by hand whose verify passed
+  # and kept its proof). Nothing is built or published.
+  release:
+    if: github.event_name == 'release' && !github.event.release.prerelease && startsWith(github.ref, 'refs/tags/v')
+    runs-on: [self-hosted, agent_protocol-jit]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: The release is a main commit
+        run: git merge-base --is-ancestor HEAD origin/main || { echo "::error::$GITHUB_REF_NAME's commit is not on main"; exit 1; }
+      - name: The release was verified
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run="$(tools/ci/verified_run.sh "$(git rev-parse HEAD)")" \
+            || { echo "::error::$GITHUB_REF_NAME's commit was not verified: no release"; exit 1; }
+          echo "Verified by run $run"
