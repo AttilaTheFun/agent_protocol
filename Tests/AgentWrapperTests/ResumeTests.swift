@@ -73,6 +73,16 @@ final class ResumeTests: XCTestCase {
         ], "visor is there already; a name with a slash is no folder's")
         XCTAssertEqual(cloned.count, 2)
         XCTAssertThrowsError(try ResumePreparation.clone([.with { $0.repository = "https://x/y.git" }], into: sources.path) { _ in 128 })
+        // A branch the remote no longer has: its default branch instead.
+        var asked: [[String]] = []
+        let fallback = try ResumePreparation.clone([.with { $0.repository = "https://github.com/AttilaTheFun/z.git"; $0.ref = "gone" }],
+                                                   into: sources.path) { arguments in
+            asked.append(arguments)
+            return arguments.contains("--branch") ? 128 : 0
+        }
+        XCTAssertEqual(asked, [["clone", "--quiet", "--branch", "gone", "https://github.com/AttilaTheFun/z.git", sources.appendingPathComponent("z").path],
+                               ["clone", "--quiet", "https://github.com/AttilaTheFun/z.git", sources.appendingPathComponent("z").path]])
+        XCTAssertEqual(fallback, [sources.appendingPathComponent("z").path])
     }
 
     func testTheJobsResumeAndSourcesAndTheRunnersFolders() throws {
