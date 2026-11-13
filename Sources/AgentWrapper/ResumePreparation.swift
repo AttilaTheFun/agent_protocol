@@ -56,8 +56,11 @@ public enum ResumePreparation {
     }
 
     /// Each of `sources` cloned under `directory` by its name, at its ref,
-    /// with `git`: one already there is left as it is. Answers the folders
-    /// cloned.
+    /// with `git`: one already there is left as it is. A ref the remote
+    /// doesn't have (a branch since merged and deleted) is its default
+    /// branch instead, said on standard error: the session carries on, and
+    /// its agent can check the branch out if it is somewhere else. Answers
+    /// the folders cloned.
     public static func clone(_ sources: [AgentProtocol_V1_Source], into directory: String,
                              git: (_ arguments: [String]) throws -> Int32 = Self.runGit) throws -> [String] {
         var cloned: [String] = []
@@ -67,10 +70,11 @@ public enum ResumePreparation {
             guard !name.isEmpty, !name.contains("/"), name != ".", name != ".." else { continue }
             let target = (directory as NSString).appendingPathComponent(name)
             if FileManager.default.fileExists(atPath: target) { continue }
-            var arguments = ["clone", "--quiet"]
-            if !source.ref.isEmpty { arguments += ["--branch", source.ref] }
-            arguments += [source.repository, target]
-            let status = try git(arguments)
+            var status = try git(["clone", "--quiet"] + (source.ref.isEmpty ? [] : ["--branch", source.ref]) + [source.repository, target])
+            if status != 0, !source.ref.isEmpty, !FileManager.default.fileExists(atPath: target) {
+                FileHandle.standardError.write(Data("agent-wrapper: \(source.repository) at \(source.ref) didn't clone: its default branch instead\n".utf8))
+                status = try git(["clone", "--quiet", source.repository, target])
+            }
             guard status == 0 else { throw Problem.cloneFailed(source.repository, status) }
             cloned.append(target)
         }
