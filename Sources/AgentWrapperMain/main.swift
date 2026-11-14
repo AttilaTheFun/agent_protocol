@@ -17,8 +17,10 @@ do {
     log("\(error)\n\n\(WrapperOptions.usage)")
     exit(2)
 }
+// The agent's token (AGENT_TOKEN): shown on each call made for it.
+let token = AgentToken(options.token ?? "")
 let reports = options.dispatcherURL.flatMap {
-    DispatcherReports(url: $0, agent: options.agent, runner: options.runner ?? ProcessInfo.processInfo.hostName)
+    DispatcherReports(url: $0, agent: options.agent, runner: options.runner ?? ProcessInfo.processInfo.hostName, token: token)
 }
 
 // A session moved here: its conversation and its repositories first.
@@ -30,7 +32,7 @@ if !options.spec.resumeSessionID.isEmpty {
         if let url = options.driverURL {
             let written = try await ResumePreparation.fetchConversation(
                 driverURL: url, agent: options.agent, workingDirectory: options.spec.workingDirectory,
-                harness: options.spec.harness, into: ResumePreparation.claudeFolder())
+                harness: options.spec.harness, token: token, into: ResumePreparation.claudeFolder())
             log("resuming \(options.spec.resumeSessionID): \(written) of its conversation's files written")
         }
         if let directory = options.sourcesDirectory, !options.sources.isEmpty {
@@ -66,7 +68,7 @@ let signals = [SIGTERM, SIGINT].map { number in
 }
 
 if let url = options.driverURL {
-    guard let link = DriverLink(url: url, core: core, hostName: ProcessInfo.processInfo.hostName, log: log) else {
+    guard let link = DriverLink(url: url, core: core, hostName: ProcessInfo.processInfo.hostName, token: token, log: log) else {
         log("AGENT_DRIVER_URL isn't http://host:port: \(url)")
         exit(2)
     }

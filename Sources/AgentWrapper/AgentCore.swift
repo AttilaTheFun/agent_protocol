@@ -44,6 +44,7 @@ public actor AgentCore {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: launch.executable)
         process.arguments = launch.arguments
+        process.environment = HarnessLaunch.environment(from: ProcessInfo.processInfo.environment)
         if !spec.workingDirectory.isEmpty { process.currentDirectoryURL = URL(fileURLWithPath: spec.workingDirectory) }
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         process.standardInput = stdin

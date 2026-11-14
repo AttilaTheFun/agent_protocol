@@ -19,6 +19,8 @@ service AgentDispatcher {
   rpc Claim(ClaimRequest) returns (ClaimResponse);
   // How a claimed job goes: the dispatcher's own moves follow (Shireworks':
   // the issue's labels and comments).
+  // A wrapper's report carries its agent's token (Job.token) as metadata
+  // `authorization: Bearer <token>`.
   rpc Report(JobReport) returns (ReportResponse);
   // The claim kept; one not renewed by `claim_expires` is released.
   rpc Renew(RenewRequest) returns (RenewResponse);
@@ -66,6 +68,13 @@ message Job {
   // The repositories a resumed session worked in, each cloned where the
   // runner keeps sources (#345: clone only, never a copy of a checkout).
   repeated Source sources = 15;
+  // The agent's own token, minted by the dispatcher for this job
+  // (docs/retiring-multipass.md, section 4): the runner hands it to the
+  // wrapper in AGENT_TOKEN, never on a command line, and the wrapper shows
+  // it on each call it makes for the agent, as gRPC metadata
+  // `authorization: Bearer <token>`. Empty from a dispatcher that mints
+  // none.
+  string token = 16;
 }
 
 // A repository a session works in: cloned under its name, at its ref.
