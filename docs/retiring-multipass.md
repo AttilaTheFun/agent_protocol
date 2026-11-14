@@ -1,0 +1,144 @@
+# Retiring MultiPass (design)
+
+MultiPass, a private repository, is the agents' and containers' proxy, the
+servers' front door and sign-in. It is retired: each of its jobs moves to
+the program it belongs to, and nothing is removed before its replacement
+works. Nothing here is built until this design is approved.
+
+The split:
+
+1. **Signing people in with GitHub moves to Shireworks' server**: the
+   owner signs in through the owner's GitHub App, as an administrator.
+2. **The container's network and proxy move here**, beside agent-wrapper:
+   - `agent-network`: the container's only network, inside it;
+   - `agent-proxy`: outside it, on the Linux or macOS host. It proxies the
+     container's requests, adding the agents' GitHub App's auth to GitHub's
+     and to Shireworks' MCP.
+3. **Shireworks tells identities apart**: a client signed in through the
+   owner's App is an administrator; one through the agents' App is an
+   agent, which may lease CI machines and does nothing administrative.
+4. **Visor's server authenticates its agents** with a token it mints
+   (a JWT), carried server → runner → agent → proxy → server: for their
+   message stream and for Visor's own MCP.
+5. **Visor's server authenticates its clients** in the way it is set to:
+   none (behind a front of one's own), SSH, a password, or (the enterprise
+   fork's) Okta.
+
+## Where each of MultiPass's jobs goes
+
+| MultiPass today | Goes to |
+|---|---|
+| `multipass-client`: the container's network (DNS with fake addresses, every TCP connection as a CONNECT over the relay socket) | `agent-network` (agent_protocol), the same code moved |
+| The relay listener: a container's streams, named by Shireworks' relay header | `agent-proxy` |
+| Dial-ins (`visor.multipass.internal:7434` to the host's Visor server) | `agent-proxy`, configured by name as now |
+| DNS over HTTPS for containers | `agent-proxy` |
+| The egress proxy: anything else passed through, logged, limited per container | `agent-proxy` |
+| The GitHub proxy: the agents' App's installation token added, the gate rules | `agent-proxy` (the App's key on the host, outside every container) |
+| `/mcp/<name>`: MCP servers' keys added (Shireworks' MCP) | `agent-proxy` |
+| The forward to Shireworks' API (`shireworks.multipass.internal`, the mac-mini key) | `agent-proxy`, with the agents' App's identity in place of an API key (below) |
+| The sign-in on 7443: password, pairing code, GitHub; sessions; servers by path | **gone**: each server signs in its own clients (5), and Shireworks signs in with GitHub (1) |
+| HTTPS with the tailnet's certificate, renewed (`--tailscale`, multipass#32–#34) | each server's own listener: the renewal code moves to Visor's server and Shireworks' |
+| Path switching (localhost, LAN, tailnet) | the clients, which already try a computer's addresses in turn |
+| The APNs proxy: pushes signed with a key no container sees | each server signs its own pushes again: both servers run on the Mac, outside every container |
+| Fronts and the server watch (a container's server reached and restarted) | gone: no server runs in a container |
+
+## 1. Signing in with GitHub: Shireworks' server
+
+*To agree with Shireworks.*
+
+- Shireworks' server runs GitHub's device flow (apps) and web flow
+  (browsers) itself, with the owner's App, as MultiPass does today (its
+  `GitHubSignIn` moves there whole). The person's token is used once, for
+  `GET /user`, and dropped.
+- Who may sign in: an allow-list of GitHub ids in Shireworks' settings.
+  The owner's id is an administrator.
+- Its own client sessions, its own HTTPS (tailnet certificate, renewed).
+
+## 2. `agent-network` and `agent-proxy`
+
+- **`agent-network`** is `multipass-client` renamed and moved: run as the
+  container's first process (`agent-network run -- <command>`), it gives
+  the container a loopback interface, DNS with fake addresses, and one
+  rule redirecting every TCP connection to itself; each goes out as a
+  `CONNECT name:port` over the relay socket Shireworks provides
+  (`/run/agent/relay.sock`). No secrets inside.
+- **`agent-proxy`** runs on the host (a LaunchAgent on the Mac, a systemd
+  unit on Linux), from one configuration file and one secrets file:
+  - the relay listener (PROXY v2 header: which container);
+  - dial-ins by name (`visor.agent.internal:7434`);
+  - DNS over HTTPS;
+  - egress, passed through and logged, limited per container if set;
+  - GitHub: the agents' App's key, its installation token, the gate;
+  - MCP servers by name, with their keys;
+  - Shireworks' API (`shireworks.agent.internal`), as the agents' App.
+- **What it never does**: sign people in, front servers, or touch Visor's
+  agent tokens (4), which pass through it unchanged.
+- Names move from `*.multipass.internal` to `*.agent.internal`; both are
+  answered during the move.
+
+## 3. Identities in Shireworks
+
+*To agree with Shireworks.*
+
+- **Administrators**: clients signed in with GitHub through the owner's App,
+  whose id is on the list. Everything.
+- **Agents**: requests `agent-proxy` forwards with the agents' App's
+  identity: an installation token Shireworks checks with GitHub (or a key
+  Shireworks issues to `agent-proxy` for this host, replacing the mac-mini
+  key), plus the agent's id as the holder. Leases, CI machines, their own
+  runs: nothing administrative (keys, restarts, volumes, settings).
+- **Machines**: CI grants and the local `sw` with its token, unchanged.
+
+## 4. Visor's agents: a token from the server
+
+- **Minted** by Visor's server when it hands out a job (a move's resume, a
+  new session): a JWT, ES256, signed with a key the server keeps.
+  - Claims: `iss` the server's id; `sub` the agent's id (UUID); `sid` the
+    session's id; `aud` `visor`; `scope` `["stream", "mcp"]`; `iat`, `exp`.
+  - Lifetime: one hour. The server sends a fresh one down the agent's
+    driver stream every half hour; a stream that drops renews on reconnect
+    with the one it holds, if still valid.
+  - Revoked by the session ending or moving back (the server refuses that
+    `sub` from then on).
+- **Carried**: in the Job (a new field, `token`), from the dispatcher to the
+  runner, to agent-wrapper (`AGENT_TOKEN`), to Claude's MCP configuration
+  (an `Authorization: Bearer` header). `agent-proxy` passes it through.
+- **Checked** by the server on the driver stream and on its MCP endpoint
+  (`/api/v2/mcp`, streamable HTTP), which offers what native sessions
+  have: `list_sessions`, `read_messages`, `send_message`, `read_inbox`,
+  `read_outbox`, `message_status`. A container session gets Visor's tools
+  back with its next start; its mail goes to its inbox again.
+- Co-tenant sessions see each other, as native sessions on one server do.
+
+## 5. Visor's clients: auth as set
+
+Visor's server takes `auth: none | password | ssh` (and Okta in the
+enterprise fork), as visor's docs/server-proxy.md has it:
+
+- **none**, behind a front with a sign-in of its own: the generic mode of
+  visor#405 (`VISOR_TRUST`, the identity headers), kept as it is.
+- **password** and **ssh**: what Visor has now, kept.
+- **HTTPS**: the server's own listener with the tailnet's certificate,
+  asked of Tailscale and renewed (from multipass#32–#34: standard output,
+  a login shell's environment, the last copy or the server's own
+  certificate if Tailscale can't be asked, never down).
+
+## Migration, in order
+
+1. **agent-proxy and agent-network** built here, tested in a VM.
+2. **The mini's primary container switched over**: Shireworks starts it
+   under `agent-network`, its relay goes to `agent-proxy`; MultiPass's
+   relay off. Both names answered.
+3. **Visor's agent tokens** (4) and its MCP endpoint; agent-wrapper and the
+   Job carry the token.
+4. **Sign-ins moved**: Shireworks' GitHub sign-in (1, 3); Visor's server's
+   own HTTPS (5). Clients repointed at each server's address.
+5. **MultiPass stopped** on both Macs, and its repository archived, once
+   nothing has reached it for a week.
+
+## Open questions
+
+- Shireworks' agent identity: GitHub's installation token checked per
+  request, or a host key Shireworks issues to `agent-proxy`.
+- Where the renewal code lives: copied into each server, or a small shared
+  package.
