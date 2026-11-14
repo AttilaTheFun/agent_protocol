@@ -87,6 +87,12 @@ extension AgentProtocol_V1_AgentDriver {
     public protocol StreamingServiceProtocol: GRPCCore.RegistrableRPCService {
         /// Handle the "Connect" method.
         ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Each call carries the agent's token, when its job had one (Job.token),
+        /// > as metadata `authorization: Bearer <token>`: the driver tells its
+        /// > agents apart by it.
+        ///
         /// - Parameters:
         ///   - request: A streaming request of `AgentProtocol_V1_WrapperMessage` messages.
         ///   - context: Context providing information about the RPC.
@@ -131,6 +137,12 @@ extension AgentProtocol_V1_AgentDriver {
     public protocol ServiceProtocol: AgentProtocol_V1_AgentDriver.StreamingServiceProtocol {
         /// Handle the "Connect" method.
         ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Each call carries the agent's token, when its job had one (Job.token),
+        /// > as metadata `authorization: Bearer <token>`: the driver tells its
+        /// > agents apart by it.
+        ///
         /// - Parameters:
         ///   - request: A streaming request of `AgentProtocol_V1_WrapperMessage` messages.
         ///   - context: Context providing information about the RPC.
@@ -172,6 +184,12 @@ extension AgentProtocol_V1_AgentDriver {
     /// then use ``ServiceProtocol`` instead.
     public protocol SimpleServiceProtocol: AgentProtocol_V1_AgentDriver.ServiceProtocol {
         /// Handle the "Connect" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Each call carries the agent's token, when its job had one (Job.token),
+        /// > as metadata `authorization: Bearer <token>`: the driver tells its
+        /// > agents apart by it.
         ///
         /// - Parameters:
         ///   - request: A stream of `AgentProtocol_V1_WrapperMessage` messages.
@@ -303,6 +321,12 @@ extension AgentProtocol_V1_AgentDriver {
     public protocol ClientProtocol: Sendable {
         /// Call the "Connect" method.
         ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Each call carries the agent's token, when its job had one (Job.token),
+        /// > as metadata `authorization: Bearer <token>`: the driver tells its
+        /// > agents apart by it.
+        ///
         /// - Parameters:
         ///   - request: A streaming request producing `AgentProtocol_V1_WrapperMessage` messages.
         ///   - serializer: A serializer for `AgentProtocol_V1_WrapperMessage` messages.
@@ -364,6 +388,12 @@ extension AgentProtocol_V1_AgentDriver {
         }
 
         /// Call the "Connect" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > Each call carries the agent's token, when its job had one (Job.token),
+        /// > as metadata `authorization: Bearer <token>`: the driver tells its
+        /// > agents apart by it.
         ///
         /// - Parameters:
         ///   - request: A streaming request producing `AgentProtocol_V1_WrapperMessage` messages.
@@ -433,6 +463,12 @@ extension AgentProtocol_V1_AgentDriver {
 extension AgentProtocol_V1_AgentDriver.ClientProtocol {
     /// Call the "Connect" method.
     ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Each call carries the agent's token, when its job had one (Job.token),
+    /// > as metadata `authorization: Bearer <token>`: the driver tells its
+    /// > agents apart by it.
+    ///
     /// - Parameters:
     ///   - request: A streaming request producing `AgentProtocol_V1_WrapperMessage` messages.
     ///   - options: Options to apply to this RPC.
@@ -489,6 +525,12 @@ extension AgentProtocol_V1_AgentDriver.ClientProtocol {
 @available(macOS 15.0, iOS 18.0, watchOS 11.0, tvOS 18.0, visionOS 2.0, *)
 extension AgentProtocol_V1_AgentDriver.ClientProtocol {
     /// Call the "Connect" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Each call carries the agent's token, when its job had one (Job.token),
+    /// > as metadata `authorization: Bearer <token>`: the driver tells its
+    /// > agents apart by it.
     ///
     /// - Parameters:
     ///   - metadata: Additional metadata to send, defaults to empty.
