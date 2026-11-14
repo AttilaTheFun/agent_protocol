@@ -56,6 +56,8 @@ Agreed with Shireworks.
   owner (publishing, approving, merging). Signing people in is another
   use: proving who a client is, MultiPass's `GitHubSignIn` moved whole,
   `GET /user` checked against `people`. Neither token is ever the other's.
+  Nor is an agent's key a reader of `/v1/github` (`github.readers`) unless
+  an admin names it there; by default none is.
 - **The web flow takes the App's client secret** (GitHub's code exchange
   needs it; the device flow doesn't): kept in the server's Keychain, set
   through an admin route as the App's key is. The owner adds the server's
@@ -113,8 +115,8 @@ Agreed with Shireworks.
   |---|---|
   | lease, renew, release machines | keys, restarts, served files, volumes |
   | exec, run, files, screenshots, record, xctest on its own leases | signing |
-  | storage put and get | `/v1/github`'s reads and verbs |
-  | | another holder's leases |
+  | storage put and get, of its own holder | `/v1/github`'s reads and verbs |
+  | `fresh-app` on its own Mac slots (its own apps' ids), for a Mac proof | another holder's leases |
 - **Machines**: CI grants and the local `sw` with its token, unchanged.
 
 ## 4. Visor's agents: a token from the server
@@ -147,7 +149,9 @@ enterprise fork), as visor's docs/server-proxy.md has it:
   visor#405 (`VISOR_TRUST`, the identity headers), kept as it is.
 - **password** and **ssh**: what Visor has now, kept.
 - **HTTPS**: the server's own listener with the tailnet's certificate,
-  asked of Tailscale and renewed (from multipass#32–#34: standard output,
+  asked of Tailscale and renewed (the code copied into each server, about
+  a hundred lines, rather than a package tying two release lines; from
+  multipass#32–#34: standard output,
   a login shell's environment, the last copy or the server's own
   certificate if Tailscale can't be asked, never down).
 
@@ -168,8 +172,3 @@ enterprise fork), as visor's docs/server-proxy.md has it:
    own HTTPS (5). Clients repointed at each server's address.
 5. **MultiPass stopped** on both Macs, and its repository archived, once
    nothing has reached it for a week.
-
-## Open questions
-
-- Where the renewal code lives: copied into each server, or a small shared
-  package.
