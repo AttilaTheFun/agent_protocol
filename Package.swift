@@ -18,12 +18,14 @@ let package = Package(
     products: [
         .library(name: "AgentProtocol", targets: ["AgentProtocol"]),
         .executable(name: "agent-wrapper", targets: ["AgentWrapperMain"]),
+        .executable(name: "agent-network", targets: ["AgentNetworkMain"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.39.0"),
         .package(url: "https://github.com/grpc/grpc-swift-2.git", from: "2.4.4"),
         .package(url: "https://github.com/grpc/grpc-swift-protobuf.git", from: "2.5.0"),
         .package(url: "https://github.com/grpc/grpc-swift-nio-transport.git", from: "2.12.0"),
+        .package(url: "https://github.com/apple/swift-nio.git", from: "2.104.0"),
     ],
     targets: [
         // The protos' messages and their services' clients and servers.
@@ -40,5 +42,16 @@ let package = Package(
                 swiftSettings: strict),
         .executableTarget(name: "AgentWrapperMain", dependencies: ["AgentWrapper"], swiftSettings: strict),
         .testTarget(name: "AgentWrapperTests", dependencies: ["AgentWrapper", "AgentProtocol"], swiftSettings: strict),
+        // The container's network (docs/retiring-multipass.md, section 2):
+        // its sockets and netlink in C, DNS and joined connections shared
+        // with agent-proxy (AgentNet), and agent-network itself.
+        .target(name: "CAgentPOSIX"),
+        .target(name: "AgentNet",
+                dependencies: ["CAgentPOSIX", .product(name: "NIOCore", package: "swift-nio"),
+                               .product(name: "NIOPosix", package: "swift-nio")],
+                swiftSettings: strict),
+        .target(name: "AgentNetwork", dependencies: ["AgentNet", "CAgentPOSIX"], swiftSettings: strict),
+        .executableTarget(name: "AgentNetworkMain", dependencies: ["AgentNetwork", "AgentNet"], swiftSettings: strict),
+        .testTarget(name: "AgentNetworkTests", dependencies: ["AgentNetwork", "AgentNet", "CAgentPOSIX"], swiftSettings: strict),
     ]
 )

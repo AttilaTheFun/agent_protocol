@@ -19,6 +19,11 @@ Shireworks are standalone apps; this is how they interact.
   one interface, and keeps what isn't in their logs (thinking, subagents,
   tool calls under way) and the queued messages. The driver is optional:
   without one, a job runs headless.
+- **`agent-network`**: a container's only network (docs/retiring-multipass.md,
+  section 2). Run as the container's first process (`agent-network run --
+  <command>`), it answers DNS with fake addresses and sends every TCP
+  connection out by name over the relay's socket to agent-proxy, on the
+  host; nothing secret is inside. Linux only (SwiftPM).
 - **An agent's id** is a UUID with its dispatcher's URL (as runners reach it,
   through MultiPass), made before any session exists, and carried from
   dispatcher to runner to wrapper to driver.
