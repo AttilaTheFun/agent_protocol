@@ -9,17 +9,24 @@ The split:
 
 1. **Signing people in with GitHub moves to Shireworks' server**: the
    owner signs in through the owner's GitHub App, as an administrator.
-2. **The container's network and proxy move here**, beside agent-wrapper:
-   - `agent-network`: the container's only network, inside it;
-   - `agent-proxy`: outside it, on the Linux or macOS host. It proxies the
-     container's requests, adding the agents' GitHub App's auth to GitHub's
-     and to Shireworks' MCP.
+2. **The container's network moves here and its proxy to Shireworks**
+   (Logan, 2026-11-14):
+   - `agent-network`: the container's only network, inside it, beside
+     agent-wrapper (this repository);
+   - `agent-proxy`: outside it, part of Shireworks (its own process, on the
+     host Shireworks runs on), and only for the agents the Shireworks
+     runner starts in containers Shireworks manages. It proxies the
+     container's requests, adding the agents' GitHub App's installation
+     token to GitHub's and its Shireworks token to Shireworks' MCP.
+   - **Visor proxies nothing**: a native agent the Visor runner starts has
+     exactly the access `claude` started in a terminal has, Shireworks' MCP
+     token from its environment (`~/.zshrc`).
 3. **Shireworks tells identities apart**: a client signed in through the
    owner's App is an administrator; one through the agents' App is an
    agent, which may lease CI machines and does nothing administrative.
 4. **Visor's server authenticates its agents** with a token it mints
-   (a JWT), carried server → runner → agent → proxy → server: for their
-   message stream and for Visor's own MCP.
+   (a JWT), carried server → runner → wrapped agent → server: for their
+   message stream and for Visor's own MCP. agent-proxy doesn't add it.
 5. **Visor's server authenticates its clients** in the way it is set to:
    none (behind a front of one's own), SSH, a password, or (the enterprise
    fork's) Okta.
@@ -29,8 +36,8 @@ The split:
 | MultiPass today | Goes to |
 |---|---|
 | `multipass-client`: the container's network (DNS with fake addresses, every TCP connection as a CONNECT over the relay socket) | `agent-network` (agent_protocol), the same code moved |
-| The relay listener: a container's streams, named by Shireworks' relay header | `agent-proxy` |
-| Dial-ins (`visor.multipass.internal:7434` to the host's Visor server) | `agent-proxy`, configured by name as now |
+| The relay listener: a container's streams, named by Shireworks' relay header | `agent-proxy` (Shireworks) |
+| Dial-ins (`visor.multipass.internal:7434` to the host's Visor server) | `agent-proxy`, configured by name as now; what passes through is Visor's own token, untouched |
 | DNS over HTTPS for containers | `agent-proxy` |
 | The egress proxy: anything else passed through, logged, limited per container | `agent-proxy` |
 | The GitHub proxy: the agents' App's installation token added, the gate rules | `agent-proxy` (the App's key on the host, outside every container) |
@@ -74,20 +81,27 @@ Agreed with Shireworks.
 
 ## 2. `agent-network` and `agent-proxy`
 
+`agent-network` is this repository's; `agent-proxy` is Shireworks'
+(`Sources/AgentProxy` there: Logan, 2026-11-14), since only Shireworks'
+containers use it and Shireworks already holds their relay.
+
 - **`agent-network`** is `multipass-client` renamed and moved: run as the
   container's first process (`agent-network run -- <command>`), it gives
   the container a loopback interface, DNS with fake addresses, and one
   rule redirecting every TCP connection to itself; each goes out as a
   `CONNECT name:port` over the relay socket Shireworks provides
   (`/run/agent/relay.sock`). No secrets inside.
-- **`agent-proxy`** runs on the host (a LaunchAgent on the Mac, a systemd
-  unit on Linux), from one configuration file and one secrets file:
+- **`agent-proxy`** runs on the host as a process of Shireworks' own (a
+  helper in its app run as a launchd job on the Mac, so a Shireworks
+  restart doesn't cut the agents' network; a systemd unit on Linux), from
+  server.json's `agentProxy` and Shireworks' Keychain:
   - the relay listener (PROXY v2 header: which container);
   - dial-ins by name (`visor.agent.internal:7434`);
   - DNS over HTTPS;
   - egress, passed through and logged, limited per container if set;
-  - GitHub: the agents' App's key, its installation token, the gate;
-  - MCP servers by name, with their keys;
+  - GitHub: the agents' App's key (logan-shire-agent's, in Shireworks'
+    Keychain), its installation token, the gate;
+  - Shireworks' MCP, with its token;
   - Shireworks' API (`shireworks.agent.internal`), with its `agent`-scope
     key and the agent's id.
 - **What it never does**: sign people in, front servers, or touch Visor's
@@ -157,7 +171,8 @@ enterprise fork), as visor's docs/server-proxy.md has it:
 
 ## Migration, in order
 
-1. **agent-proxy and agent-network** built here, tested in a VM.
+1. **agent-network** built here, **agent-proxy** in Shireworks, tested in a
+   VM.
 2. **The mini's primary container switched over**, in one remake once
    `agent-proxy`'s relay listener is live: Shireworks' `containerRelay`
    pointed at it (the PROXY v2 header and relay token unchanged), the
