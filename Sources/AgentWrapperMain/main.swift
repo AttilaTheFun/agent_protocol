@@ -4,11 +4,21 @@
 // then completed or failed, and ends when the agent does: 0 when it
 // reported, else 1, so its runner releases the job. WrapperOptions has
 // the arguments and environment.
+//
+// `agent-wrapper mcp` is the agent's MCP server "visor", as Claude starts
+// it (its --mcp-config): a pipe to the wrapper that started Claude, at
+// AGENT_MCP_SOCKET (MCPStdio).
 
 import AgentWrapper
 import Foundation
 
+if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "mcp" {
+    exit(MCPStdio.run(environment: ProcessInfo.processInfo.environment))
+}
+
 let log: @Sendable (String) -> Void = { FileHandle.standardError.write(Data("agent-wrapper: \($0)\n".utf8)) }
+// A write to a connection whose reader has gone fails, rather than ending us.
+signal(SIGPIPE, SIG_IGN)
 
 let options: WrapperOptions
 do {
@@ -46,15 +56,35 @@ if !options.spec.resumeSessionID.isEmpty {
     }
 }
 
+// The agent's MCP server, "visor": its messages relayed to the driver,
+// its permission prompts asked of it (MCPRelay), for Claude.
+let relay = MCPRelay(hasDriver: options.driverURL != nil, asksPermission: !options.spec.skipPermissions, log: log)
+let mcpServer: MCPSocketServer? = {
+    guard ["claude", ""].contains(options.spec.harness) else { return nil }
+    do {
+        return try MCPSocketServer(relay: relay)
+    } catch {
+        log("the agent's MCP server can't listen, so it has none: \(error)")
+        return nil
+    }
+}()
+
+/// Ended: the MCP socket's folder gone first.
+func finish(_ status: Int32) -> Never {
+    mcpServer?.close()
+    exit(status)
+}
+
 let core: AgentCore
 do {
-    let launch = try HarnessLaunch.for(options.spec, claudeProgram: options.claudeProgram)
+    let mcp = mcpServer.map { HarnessLaunch.MCP(command: HarnessLaunch.ownPath(), socket: $0.path) }
+    let launch = try HarnessLaunch.for(options.spec, claudeProgram: options.claudeProgram, mcp: mcp)
     core = AgentCore(agent: options.agent, spec: options.spec, launch: launch, log: log)
     try await core.start()
 } catch {
     log("the harness can't start: \(error)")
     try? await reports?.failed(reason: "the harness can't start: \(error)")
-    exit(1)
+    finish(1)
 }
 log("agent \(options.agent.uuid) started (\(options.spec.harness))")
 
@@ -68,9 +98,9 @@ let signals = [SIGTERM, SIGINT].map { number in
 }
 
 if let url = options.driverURL {
-    guard let link = DriverLink(url: url, core: core, hostName: ProcessInfo.processInfo.hostName, token: token, log: log) else {
+    guard let link = DriverLink(url: url, core: core, hostName: ProcessInfo.processInfo.hostName, token: token, relay: relay, log: log) else {
         log("AGENT_DRIVER_URL isn't http://host:port: \(url)")
-        exit(2)
+        finish(2)
     }
     Task { await link.run() }
     log("driver \(link.host):\(link.port)")
@@ -93,7 +123,7 @@ if let reports {
 let why = await core.ended()
 for source in signals { source.cancel() }
 log("agent ended: \(why)")
-guard let reports else { exit(0) }
+guard let reports else { finish(0) }
 let last = await core.entries.last { $0.role == .assistant && !$0.text.isEmpty }?.text ?? ""
 do {
     if why == "the harness ended" || why.hasPrefix("stopped") {
@@ -101,8 +131,8 @@ do {
     } else {
         try await reports.failed(reason: why)
     }
-    exit(0)
+    finish(0)
 } catch {
     log("the dispatcher didn't take the job's end: \(error)")
-    exit(1)
+    finish(1)
 }

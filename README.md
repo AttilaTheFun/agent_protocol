@@ -111,11 +111,76 @@ or on a command line. The wrapper shows it on each call it makes for the
 agent, its driver's `Connect` and `Conversation` and its dispatcher's
 `Report`, as gRPC metadata `authorization: Bearer <token>`, and takes a
 fresh one when the driver sends it (`DriverMessage.token`). The harness
-isn't given it. Not yet: Claude's MCP configuration carrying it to the
-server's MCP endpoint, which comes with that endpoint.
+isn't given it: its MCP server reaches the driver through the wrapper
+(below), so the token never leaves the wrapper.
 
-Not yet: Codex and OpenRouter, permission prompts relayed to the driver,
-interrupts and model changes, and the AgentWrapper service. Its harnesses
+**The agent's MCP server, "visor", and its approvals.** Claude is given
+the driver's MCP tools (Visor's `send_message`, `read_inbox`,
+`list_sessions`, …), named `mcp__visor__<tool>` as in a session on the
+driver's own computer, and, when the agent asks before acting
+(`skip_permissions` false), its permission prompts go to the driver:
+
+- The wrapper listens on a Unix socket in a private folder of its own
+  (`$TMPDIR/agent-mcp-XXXXXX/mcp.sock`, the folder 0700, the socket 0600,
+  removed when it ends) and starts Claude with
+  `--mcp-config '{"mcpServers":{"visor":{"type":"stdio","command":"<agent-wrapper>","args":["mcp"],"env":{"AGENT_MCP_SOCKET":"<socket>"}}}}'`
+  (and `AGENT_MCP_SOCKET` in Claude's environment too), plus
+  `--permission-prompt-tool mcp__visor__approve` when the agent asks, or
+  `--permission-mode bypassPermissions` when it acts. A resumed session
+  the same. Nothing secret is on a command line or in the configuration.
+- `agent-wrapper mcp` is that server: a pipe between Claude's MCP client
+  (its stdin and stdout) and the wrapper's socket, nothing more.
+- The wrapper relays each JSON-RPC message, verbatim, to the driver as
+  `WrapperMessage.mcp` (`McpRequest`: its own `id` for the request, empty
+  for a notification; the `json`; the `client`, which MCP connection), and
+  writes each `DriverMessage.mcp` (`McpResponse`: the same `id`, the
+  `json`) back to the connection that asked. An `McpResponse` with no id is
+  the server's own message (a `notifications/tools/list_changed`, say), for
+  its `client`, or for every connection when that is empty.
+- `approve` is the wrapper's: it adds it to the driver's `tools/list`
+  answer (when the agent asks before acting and the list lacks it), and a
+  `tools/call` of `approve` (`{tool_name, input, tool_use_id}`) never
+  reaches the driver as MCP: it goes up as `WrapperMessage.approval`
+  (`ApprovalRequest`: `id`, `tool`, a one-line `summary`, `input_json`,
+  `tool_use_id`), and the driver's `DriverMessage.approval` (`Approval`:
+  `request_id`, `allow`, `reason`, `updated_input_json`) answers Claude as
+  its permission prompt expects, `{"behavior":"allow","updatedInput":…}`
+  (the driver's `updated_input_json`, else the input as asked) or
+  `{"behavior":"deny","message":…}` (the `reason`, else "The user denied
+  this."). While it waits it tells Claude so every 20 s (MCP progress),
+  when Claude takes progress; when it doesn't, it is denied after 25
+  minutes unanswered. An approval the agent gives up on (or that times
+  out) is withdrawn: `WrapperMessage.approval_withdrawn` with its id. An
+  approval still waiting is sent again on each new connection to the
+  driver.
+- A driver that doesn't serve MCP (an older one, which answers nothing):
+  an `initialize` it was sent and left unanswered for 15 s is answered by
+  the wrapper (a server with `approve` alone); from then on tool calls
+  get a JSON-RPC error saying the driver doesn't serve MCP, and approvals
+  are denied, saying the driver can't take approvals. With no driver at
+  all, the same at once. A tool call the driver leaves unanswered fails
+  after 15 minutes, and one under way when the connection drops fails
+  then: nothing waits without end.
+
+**What a driver (Visor) does for this**, on `Connect`:
+- Answer each `WrapperMessage.mcp` that has an `id` with a
+  `DriverMessage.mcp` carrying the same `id`, whose `json` is its MCP
+  server's JSON-RPC response to the request's `json` (`initialize`,
+  `tools/list`, `tools/call`, `ping`, …), run for the agent's session: the
+  one whose token the stream's `Connect` showed (`authorization: Bearer`).
+  Take one with no `id` as a notification (`notifications/initialized`,
+  `notifications/cancelled`) or the client's answer to a request of the
+  server's own. Keep per-connection state by `client`. `approve` need not
+  be listed (the wrapper adds it) and is never called through MCP.
+- Answer each `WrapperMessage.approval` with a `DriverMessage.approval`
+  of the same `request_id`: `allow`, and when it changes the input (an
+  AskUserQuestion's answers) `updated_input_json`; or not, with a
+  `reason`. Take an id once: a waiting approval comes again after a
+  reconnect. Drop the prompt on `approval_withdrawn`.
+- A driver that serves MCP is taken to answer approvals too.
+
+Not yet: Codex and OpenRouter, interrupts and model changes, and the
+AgentWrapper service. Its harnesses
 will come from Visor's agent code (visor_agent).
 
 ## Licence

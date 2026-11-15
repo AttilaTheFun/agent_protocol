@@ -8,17 +8,19 @@ import GRPCNIOTransportHTTP2
 /// connection it says who it is, then everything the agent has said and is
 /// doing, then what changes; and it takes what the driver sends (messages,
 /// an interrupt, a stop, a fresh token). Each connection shows the agent's
-/// token as it is then (AgentToken).
+/// token as it is then (AgentToken). With a relay, the agent's MCP server's
+/// messages and its approvals go up too, and their answers come down to it.
 public struct DriverLink: Sendable {
     public let host: String
     public let port: Int
     let core: AgentCore
     let hostName: String
     let token: AgentToken
+    let relay: MCPRelay?
     let log: @Sendable (String) -> Void
 
     /// Nil for an address that isn't `http://host:port`.
-    public init?(url: String, core: AgentCore, hostName: String, token: AgentToken = AgentToken(),
+    public init?(url: String, core: AgentCore, hostName: String, token: AgentToken = AgentToken(), relay: MCPRelay? = nil,
                  log: @escaping @Sendable (String) -> Void = { _ in }) {
         guard let components = URLComponents(string: url), components.scheme == "http", let host = components.host, !host.isEmpty
         else { return nil }
@@ -27,6 +29,7 @@ public struct DriverLink: Sendable {
         self.core = core
         self.hostName = hostName
         self.token = token
+        self.relay = relay
         self.log = log
     }
 
@@ -55,6 +58,7 @@ public struct DriverLink: Sendable {
         let hello = await helloMessage()
         let log = self.log
         let token = self.token
+        let relay = self.relay
         try await withGRPCClient(transport: transport) { client in
             let driver = AgentProtocol_V1_AgentDriver.Client(wrapping: client)
             try await driver.connect(metadata: token.metadata, requestProducer: { writer in
@@ -68,14 +72,28 @@ public struct DriverLink: Sendable {
                     try await writer.write(.with { $0.ended = ended })
                     return
                 }
-                for await change in changes {
-                    switch change {
-                    case .entry(let row): try await writer.write(.with { $0.entries = .with { $0.entries = [row] } })
-                    case .state(let state): try await writer.write(.with { $0.state = state })
-                    case .sessionID(let id): try await writer.write(.with { $0.sessionID = id })
-                    case .ended(let why): try await writer.write(.with { $0.ended = why })
+                // What changes, and the relay's messages, in one line.
+                let (outgoing, sending) = AsyncStream<AgentProtocol_V1_WrapperMessage>.makeStream()
+                let telling = Task {
+                    for await change in changes {
+                        switch change {
+                        case .entry(let row): sending.yield(.with { $0.entries = .with { $0.entries = [row] } })
+                        case .state(let state): sending.yield(.with { $0.state = state })
+                        case .sessionID(let id): sending.yield(.with { $0.sessionID = id })
+                        case .ended(let why): sending.yield(.with { $0.ended = why })
+                        }
                     }
+                    sending.finish()
                 }
+                let relaying = Task {
+                    guard let relay else { return }
+                    for await message in await relay.driverConnected() { sending.yield(message) }
+                }
+                defer {
+                    telling.cancel()
+                    relaying.cancel()
+                }
+                for await message in outgoing { try await writer.write(message) }
             }, onResponse: { response in
                 for try await message in response.messages {
                     switch message.message {
@@ -84,7 +102,9 @@ public struct DriverLink: Sendable {
                     case .interrupt: log("driver: an interrupt isn't supported by this harness yet")
                     case .model(let change): log("driver: changing the model to \(change.model) isn't supported yet")
                     case .token(let fresh): token.replace(with: fresh)
-                    case .approval, .acknowledged, .none: break
+                    case .mcp(let answer): await relay?.take(answer)
+                    case .approval(let approval): await relay?.take(approval)
+                    case .acknowledged, .none: break
                     }
                 }
             })
