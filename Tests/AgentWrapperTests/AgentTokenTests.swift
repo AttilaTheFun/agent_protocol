@@ -88,6 +88,29 @@ final class AgentTokenTests: XCTestCase {
         XCTAssertThrowsError(try WrapperOptions(arguments: ["--token", "t"], environment: ["AGENT_ID": "u1@http://d"]), "no flag")
     }
 
+    /// An empty token is none: an empty Job.token, or an empty AGENT_TOKEN,
+    /// and no call shows a bearer.
+    func testAnEmptyTokenIsNone() async throws {
+        XCTAssertFalse(try AgentProtocol_V1_Job.with { $0.title = "t"; $0.token = "" }.jsonString().contains("token"))
+        let options = try WrapperOptions(arguments: [], environment: ["AGENT_ID": "u1@http://d", "AGENT_JOB": #"{"harness":"echo"}"#, "AGENT_TOKEN": ""])
+        XCTAssertNil(options.token, "an empty AGENT_TOKEN is none")
+        let token = AgentToken(options.token ?? "")  // as agent-wrapper's main makes it
+        XCTAssertEqual(Array(token.metadata[stringValues: AgentToken.metadataKey]), [])
+
+        let seen = SeenCalls()
+        let transport = HTTP2ServerTransport.Posix(address: .ipv4(host: "127.0.0.1", port: 0), transportSecurity: .plaintext)
+        try await withGRPCServer(transport: transport, services: [TestDispatcher()], interceptors: [seen]) { server in
+            let address = try await transport.listeningAddress
+            let port = try XCTUnwrap(address.ipv4?.port)
+            var agent = AgentProtocol_V1_AgentID()
+            agent.uuid = "a5"
+            agent.dispatcherURL = "http://127.0.0.1:\(port)"
+            try await XCTUnwrap(DispatcherReports(url: agent.dispatcherURL, agent: agent, runner: "r", token: token)).started(session: "s")
+            XCTAssertEqual(seen.shown("Report"), [""], "no bearer")
+            server.beginGracefulShutdown()
+        }
+    }
+
     func testTheHarnessIsNotGivenTheToken() {
         let environment = HarnessLaunch.environment(from: ["AGENT_TOKEN": "secret", "AGENT_ID": "u1@http://d", "PATH": "/bin"])
         XCTAssertEqual(environment, ["AGENT_ID": "u1@http://d", "PATH": "/bin"])

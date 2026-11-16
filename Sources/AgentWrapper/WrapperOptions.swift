@@ -7,8 +7,12 @@ import Foundation
 /// - `AGENT_ID`: `<uuid>@<dispatcher URL>`;
 /// - `AGENT_JOB`: the job as JSON, `{agent, dispatcherURL, title, prompt,
 ///   sourceURL, repository, ref, harness?, model?, effort?, labels,
-///   workingDirectory?, driverURL?, resumeSessionID?, sources?}`, where
-///   `sources` is `[{repository, ref, name}]`;
+///   workingDirectory?, driverURL?, resumeSessionID?, sources?,
+///   skipPermissions?}`, where `sources` is `[{repository, ref, name}]` and
+///   `skipPermissions` is Job.skip_permissions, there only when the job has
+///   it (it has presence): true, the agent acts without asking; false, it
+///   asks (its approvals go to its driver); absent (a dispatcher that
+///   predates the field), it asks unless `--skip-permissions` is passed;
 /// - `AGENT_DISPATCHER_URL`: whom it reports Started, Completed and Failed to;
 /// - `AGENT_DRIVER_URL`: the driver it dials, if any;
 /// - `AGENT_RUNNER`: the runner's name;
@@ -17,13 +21,16 @@ import Foundation
 ///   unless the agent's id is a UUID and its harness one folder's name);
 /// - `AGENT_SOURCES_DIR`: where a resumed session's `sources` are cloned;
 /// - `AGENT_TOKEN`: the agent's token (Job.token), if its job had one:
-///   shown to its driver and dispatcher (AgentToken). Only here: not in
-///   AGENT_JOB, and no flag, so it stays off every command line. The
-///   wrapper unsets it once read and leaves it out of the harness's
-///   environment, so no child inherits it; the harness, as the same user,
-///   can still read it in /proc/<wrapper>/environ (AgentToken).
+///   shown to its driver and dispatcher (AgentToken). Unset or empty,
+///   there is none: no call shows a bearer. Only here: not in AGENT_JOB,
+///   and no flag, so it stays off every command line. The wrapper unsets
+///   it once read and leaves it out of the harness's environment, so no
+///   child inherits it; the harness, as the same user, can still read it
+///   in /proc/<wrapper>/environ (AgentToken).
 ///
-/// By hand, the same as flags:
+/// By hand, the same as flags. `--skip-permissions` makes the agent act
+/// without asking whatever the job says: a runner passes it when the job
+/// has no `skipPermissions` (as runners always have) or it is true.
 ///
 ///     agent-wrapper --agent <uuid> --dispatcher <url> [--harness claude|echo] [--model m] [--effort e]
 ///                   [--cwd dir] [--title t] [--prompt text] [--resume id] [--skip-permissions] [--label key=value]…
@@ -41,7 +48,8 @@ public struct WrapperOptions: Sendable, Equatable {
     public var sources: [AgentProtocol_V1_Source] = []
     /// Where the runner keeps sources (AGENT_SOURCES_DIR: /Volumes/Sources).
     public var sourcesDirectory: String?
-    /// The agent's token (AGENT_TOKEN), if any.
+    /// The agent's token (AGENT_TOKEN), if any: nil when AGENT_TOKEN is
+    /// unset or empty.
     public var token: String?
 
     public enum Problem: Error, Equatable, CustomStringConvertible {
@@ -110,6 +118,13 @@ public struct WrapperOptions: Sendable, Equatable {
         harness.isEmpty ? "Claude" : harness.prefix(1).uppercased() + harness.dropFirst()
     }
 
+    /// AGENT_JOB's `skipPermissions`: true or false when the job has it (a
+    /// JSON boolean, as JSONSerialization gives it), nil when it doesn't.
+    /// Anything else is taken as absent.
+    static func skipsPermissions(_ value: Any?) -> Bool? {
+        value as? Bool
+    }
+
     private static func given(_ value: String?) -> String? {
         guard let value, !value.isEmpty else { return nil }
         return value
@@ -135,6 +150,9 @@ public struct WrapperOptions: Sendable, Equatable {
         for label in object["labels"] as? [String] ?? [] { spec.labels[label] = "" }
         if !string("driverURL").isEmpty { driverURL = string("driverURL") }
         if !string("resumeSessionID").isEmpty { spec.resumeSessionID = string("resumeSessionID") }
+        // Job.skip_permissions: true acts, false asks; absent asks too,
+        // unless `--skip-permissions` (read after, an override) says act.
+        spec.skipPermissions = Self.skipsPermissions(object["skipPermissions"]) ?? false
         for source in object["sources"] as? [[String: Any]] ?? [] {
             sources.append(.with {
                 $0.repository = source["repository"] as? String ?? ""

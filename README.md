@@ -116,10 +116,37 @@ answers it with a `control_response`, and ends the turn with its
 `error_during_execution` result. The echo harness's turn just ends,
 unanswered. A stop still ends the agent.
 
+**Whether the agent asks before acting** is the job's:
+`Job.skip_permissions`, an `optional bool`, so a job either says true,
+says false, or says nothing (a dispatcher that predates the field, such
+as Visor 0.59.1). A runner passes it on in `AGENT_JOB` as
+`skipPermissions` (a JSON boolean) only when the job has it, true or
+false, and leaves the key out when it doesn't. The wrapper:
+
+- `skipPermissions` true: the agent acts (Claude's
+  `--permission-mode bypassPermissions`);
+- `skipPermissions` false: it asks, and its permission prompts go to its
+  driver (`--permission-prompt-tool mcp__visor__approve`, below);
+- no `skipPermissions`: it asks, as false does, unless the runner passes
+  `--skip-permissions`;
+- `--skip-permissions` makes any job act, whatever `AGENT_JOB` says.
+
+What a runner does with `--skip-permissions`:
+
+- **`skip_permissions` absent** (an old driver): keep passing
+  `--skip-permissions`, as runners do today, and put no `skipPermissions`
+  in `AGENT_JOB`. Its agents act, as they always have, rather than wait
+  for approvals a driver that old can't serve.
+- **`skip_permissions` present**: pass `--skip-permissions` only when it is
+  true, and put `skipPermissions` (true or false) in `AGENT_JOB`. False,
+  the agent asks its driver.
+
 **The agent's token** (`Job.token`, minted by the dispatcher;
 docs/retiring-multipass.md, section 4): a runner hands it to the wrapper
 in `AGENT_TOKEN`, beside `AGENT_ID` and `AGENT_JOB`, never in `AGENT_JOB`
-or on a command line. The wrapper shows it on each call it makes for the
+or on a command line. An empty `Job.token` means none: the runner sets no
+`AGENT_TOKEN` (and the wrapper takes an empty one as unset), and no call
+shows a bearer. The wrapper shows it on each call it makes for the
 agent, its driver's `Connect` and `Conversation` and its dispatcher's
 `Report`, as gRPC metadata `authorization: Bearer <token>`, and takes a
 fresh one when the driver sends it (`DriverMessage.token`).
