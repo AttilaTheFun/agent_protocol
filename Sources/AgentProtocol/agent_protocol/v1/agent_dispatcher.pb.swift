@@ -181,6 +181,17 @@ public nonisolated struct AgentProtocol_V1_Job: @unchecked Sendable {
     set {_uniqueStorage()._token = newValue}
   }
 
+  /// Whether the agent acts without asking (true: Claude's
+  /// `--permission-mode bypassPermissions`) or asks before acting (false:
+  /// each permission prompt goes to its driver as `WrapperMessage.approval`,
+  /// through the wrapper's `mcp__visor__approve`). The runner hands it to the
+  /// wrapper in AGENT_JOB (`skipPermissions`); a job without it asks. Visor's
+  /// dispatcher sets it from the session's own setting.
+  public var skipPermissions: Bool {
+    get {_storage._skipPermissions}
+    set {_uniqueStorage()._skipPermissions = newValue}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -500,7 +511,7 @@ nonisolated extension AgentProtocol_V1_ClaimResponse: SwiftProtobuf.Message, Swi
 
 nonisolated extension AgentProtocol_V1_Job: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Job"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}agent\0\u{1}title\0\u{1}prompt\0\u{3}source_url\0\u{1}repository\0\u{1}ref\0\u{1}harness\0\u{1}model\0\u{1}effort\0\u{1}labels\0\u{3}claim_expires\0\u{3}working_directory\0\u{3}driver_url\0\u{3}resume_session_id\0\u{1}sources\0\u{1}token\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}agent\0\u{1}title\0\u{1}prompt\0\u{3}source_url\0\u{1}repository\0\u{1}ref\0\u{1}harness\0\u{1}model\0\u{1}effort\0\u{1}labels\0\u{3}claim_expires\0\u{3}working_directory\0\u{3}driver_url\0\u{3}resume_session_id\0\u{1}sources\0\u{1}token\0\u{3}skip_permissions\0")
 
   fileprivate class _StorageClass {
     var _agent: AgentProtocol_V1_AgentID? = nil
@@ -519,6 +530,7 @@ nonisolated extension AgentProtocol_V1_Job: SwiftProtobuf.Message, SwiftProtobuf
     var _resumeSessionID: String = String()
     var _sources: [AgentProtocol_V1_Source] = []
     var _token: String = String()
+    var _skipPermissions: Bool = false
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -545,6 +557,7 @@ nonisolated extension AgentProtocol_V1_Job: SwiftProtobuf.Message, SwiftProtobuf
       _resumeSessionID = source._resumeSessionID
       _sources = source._sources
       _token = source._token
+      _skipPermissions = source._skipPermissions
     }
   }
 
@@ -579,6 +592,7 @@ nonisolated extension AgentProtocol_V1_Job: SwiftProtobuf.Message, SwiftProtobuf
         case 14: try { try decoder.decodeSingularStringField(value: &_storage._resumeSessionID) }()
         case 15: try { try decoder.decodeRepeatedMessageField(value: &_storage._sources) }()
         case 16: try { try decoder.decodeSingularStringField(value: &_storage._token) }()
+        case 17: try { try decoder.decodeSingularBoolField(value: &_storage._skipPermissions) }()
         default: break
         }
       }
@@ -639,6 +653,9 @@ nonisolated extension AgentProtocol_V1_Job: SwiftProtobuf.Message, SwiftProtobuf
       if !_storage._token.isEmpty {
         try visitor.visitSingularStringField(value: _storage._token, fieldNumber: 16)
       }
+      if _storage._skipPermissions != false {
+        try visitor.visitSingularBoolField(value: _storage._skipPermissions, fieldNumber: 17)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -664,6 +681,7 @@ nonisolated extension AgentProtocol_V1_Job: SwiftProtobuf.Message, SwiftProtobuf
         if _storage._resumeSessionID != rhs_storage._resumeSessionID {return false}
         if _storage._sources != rhs_storage._sources {return false}
         if _storage._token != rhs_storage._token {return false}
+        if _storage._skipPermissions != rhs_storage._skipPermissions {return false}
         return true
       }
       if !storagesAreEqual {return false}
