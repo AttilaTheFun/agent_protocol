@@ -91,8 +91,9 @@ public struct HarnessLaunch: Sendable, Equatable {
     }
 
     /// The harness's environment: the wrapper's, without the agent's token
-    /// (AGENT_TOKEN), which is the wrapper's to show and not the harness's
-    /// tools' to read.
+    /// (AGENT_TOKEN), which is the wrapper's to show, not the harness's to
+    /// be handed. The wrapper unsets it too (AgentToken.removeFromEnvironment);
+    /// neither keeps it from a harness that reads /proc/<wrapper>/environ.
     public static func environment(from wrapper: [String: String]) -> [String: String] {
         wrapper.filter { $0.key != "AGENT_TOKEN" }
     }

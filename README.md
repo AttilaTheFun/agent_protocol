@@ -102,7 +102,19 @@ the tests' stand-in does.
 - clones each source under `AGENT_SOURCES_DIR` by its name and ref;
 - then runs `claude --resume`.
 Nothing already there is overwritten. A job with no working directory, on a
-runner that sets `AGENT_SESSIONS_DIR`, works in `<dir>/Claude/<agent>`.
+runner that sets `AGENT_SESSIONS_DIR`, works in `<dir>/Claude/<agent>`; the
+wrapper refuses to start unless the agent's id is a UUID and the harness a
+single folder name (no `/`, `.` or `..`, not empty), so the folder stays
+under that directory. The
+harness's working directory, fresh or resumed, is made (with the folders
+above it) before it starts; one that can't be made fails the job, naming it.
+
+**The driver's interrupt** stops the turn under way and keeps the harness for
+the next message: Claude is sent the control request Claude Code's SDKs send
+(`{"type":"control_request","request_id":"<id>","request":{"subtype":"interrupt"}}`),
+answers it with a `control_response`, and ends the turn with its
+`error_during_execution` result. The echo harness's turn just ends,
+unanswered. A stop still ends the agent.
 
 **Whether the agent asks before acting** is the job's:
 `Job.skip_permissions`, an `optional bool`, so a job either says true,
@@ -137,10 +149,23 @@ or on a command line. An empty `Job.token` means none: the runner sets no
 shows a bearer. The wrapper shows it on each call it makes for the
 agent, its driver's `Connect` and `Conversation` and its dispatcher's
 `Report`, as gRPC metadata `authorization: Bearer <token>`, and takes a
-fresh one when the driver sends it (`DriverMessage.token`). The harness
-isn't handed it: its MCP server reaches the driver through the wrapper
-(below), so the token is in no MCP configuration or command line of
-Claude's.
+fresh one when the driver sends it (`DriverMessage.token`).
+
+The harness isn't handed it: the wrapper unsets `AGENT_TOKEN` as soon as
+it has read it and leaves it out of the harness's environment, so no
+child inherits it, and its MCP server reaches the driver through the
+wrapper (below), so the token is in no MCP configuration or command line
+of Claude's. That isn't secrecy from the harness. On Linux,
+`unsetenv` doesn't change `/proc/<pid>/environ` (the block the process was
+started with), and the harness runs as the wrapper's user, so it can read
+the wrapper's `/proc/<wrapper>/environ`, and its memory, if it looks. Treat
+the token as the agent's, which a hostile harness could use for as long
+as it is valid.
+
+The wrapper's calls are plaintext HTTP/2 (`http://host:port`, no TLS), so
+the bearer token crosses the network as written. That is fine only over
+the container's own link (agent-proxy's dial-in, on the host) or the
+tailnet, which encrypts it; never over any other network.
 
 **The agent's MCP server, "visor", and its approvals.** Claude is given
 the driver's MCP tools (Visor's `send_message`, `read_inbox`,
@@ -242,8 +267,8 @@ driver's own computer, and, when the agent asks before acting
   visor#438). Drop the prompt on `approval_withdrawn`.
 - A driver that serves MCP is taken to answer approvals too.
 
-Not yet: Codex and OpenRouter, interrupts and model changes, and the
-AgentWrapper service. Its harnesses
+Not yet: Codex and OpenRouter, model changes, and the AgentWrapper
+service. Its harnesses
 will come from Visor's agent code (visor_agent).
 
 ## Licence
