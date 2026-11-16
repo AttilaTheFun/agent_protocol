@@ -22,6 +22,35 @@ public actor AgentCore {
     private var endWaiters: [CheckedContinuation<String, Never>] = []
     /// The built-in echo harness: no process, each message answered here.
     private var echoing = false
+    /// The echo harness's turn under way: its message's id.
+    private var echoTurn: String?
+    /// Interrupts sent to the harness, by request id, not yet answered.
+    private var interrupts: Set<String> = []
+    /// Whether the turn under way was interrupted: its end (Claude's
+    /// "error_during_execution") is then the interrupt, not an error.
+    private var interrupted = false
+
+    /// Why a harness didn't start.
+    public enum Problem: Error, Equatable, CustomStringConvertible {
+        /// Its working directory couldn't be made: the folder, and why.
+        case folderNotMade(String, String)
+        /// Its program didn't start because its working directory isn't
+        /// there (Foundation on Linux says only "no such file", naming the
+        /// program): the folder, the program, and the error.
+        case folderMissing(String, program: String, String)
+        /// Its program didn't start, in a folder that is there.
+        case notStarted(program: String, folder: String, String)
+
+        public var description: String {
+            switch self {
+            case .folderNotMade(let folder, let why): "its working directory \(folder) can't be made: \(why)"
+            case .folderMissing(let folder, let program, let why):
+                "its working directory \(folder) isn't there, so \(program) didn't start: \(why)"
+            case .notStarted(let program, let folder, let why):
+                "\(program) didn't start\(folder.isEmpty ? "" : " in \(folder)"): \(why)"
+            }
+        }
+    }
 
     public init(agent: AgentProtocol_V1_AgentID, spec: AgentProtocol_V1_AgentSpec, launch: HarnessLaunch,
                 log: @escaping @Sendable (String) -> Void = { _ in }) {
@@ -32,7 +61,9 @@ public actor AgentCore {
         now.model = spec.model
     }
 
-    /// The harness started, and the spec's prompt sent when it has one.
+    /// The harness started in its working directory (made first, with any
+    /// folders above it, when it isn't there: a fresh job's folder under
+    /// AGENT_SESSIONS_DIR is), and the spec's prompt sent when it has one.
     public func start() throws {
         if launch.isEcho {
             session = "echo-" + UUID().uuidString.lowercased()
@@ -44,7 +75,15 @@ public actor AgentCore {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: launch.executable)
         process.arguments = launch.arguments
-        if !spec.workingDirectory.isEmpty { process.currentDirectoryURL = URL(fileURLWithPath: spec.workingDirectory) }
+        let folder = spec.workingDirectory
+        if !folder.isEmpty {
+            do {
+                try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
+            } catch {
+                throw Problem.folderNotMade(folder, "\(error)")
+            }
+            process.currentDirectoryURL = URL(fileURLWithPath: folder, isDirectory: true)
+        }
         let stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         process.standardInput = stdin
         process.standardOutput = stdout
@@ -69,7 +108,17 @@ public actor AgentCore {
             let status = ended.terminationStatus
             Task { await self?.harnessEnded(status: status) }
         }
-        try process.run()
+        do {
+            try process.run()
+        } catch {
+            stdout.fileHandleForReading.readabilityHandler = nil
+            stderr.fileHandleForReading.readabilityHandler = nil
+            var isFolder: ObjCBool = false
+            if !folder.isEmpty, !(FileManager.default.fileExists(atPath: folder, isDirectory: &isFolder) && isFolder.boolValue) {
+                throw Problem.folderMissing(folder, program: launch.executable, "\(error)")
+            }
+            throw Problem.notStarted(program: launch.executable, folder: folder, "\(error)")
+        }
         self.process = process
         input = stdin.fileHandleForWriting
         Task { [weak self] in
@@ -92,6 +141,39 @@ public actor AgentCore {
         }
         begin(id: id, text: text)
         return false
+    }
+
+    /// The turn under way stopped, the harness kept for the next message
+    /// (a message waiting begins once it has stopped). Claude is sent a
+    /// control request on its stdin, as Claude Code's SDKs send one
+    /// (ClaudeLine.interrupt); it answers it, then ends the turn with its
+    /// result. The echo harness's turn just ends, unanswered. Whether there
+    /// was a turn to stop.
+    @discardableResult
+    public func interrupt() -> Bool {
+        guard endedBecause == nil, now.busy else {
+            log("an interrupt, with no turn under way")
+            return false
+        }
+        if echoing {
+            echoTurn = nil
+            interrupted = true
+            endTurn(error: nil)
+            return true
+        }
+        guard let input else { return false }
+        let id = "interrupt-" + UUID().uuidString.lowercased()
+        interrupts.insert(id)
+        interrupted = true
+        do {
+            try input.write(contentsOf: Data((ClaudeLine.interrupt(requestID: id) + "\n").utf8))
+        } catch {
+            interrupts.remove(id)
+            interrupted = false
+            log("the interrupt couldn't be sent: \(error)")
+            return false
+        }
+        return true
     }
 
     /// Ends the agent: its harness asked to end, and made to.
@@ -145,6 +227,7 @@ public actor AgentCore {
         tell(.state(now))
         if echoing {
             // A moment's work, then the words back and the turn's end.
+            echoTurn = id
             Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(200))
                 await self?.echo(id: id, text: text)
@@ -199,25 +282,42 @@ public actor AgentCore {
                 now.tools.removeAll { $0.id == id }
                 tell(.state(now))
             case .turnEnded(let error):
-                if let error { log("turn ended in error: \(error)") }
-                now.busy = false
-                now.thinking = false
-                now.tools = []
-                now.activity = ""
-                if waiting.isEmpty {
-                    tell(.state(now))
-                } else {
-                    let next = waiting.removeFirst()
-                    now.queued = waiting.map(\.text)
-                    begin(id: next.id, text: next.text)
+                endTurn(error: error)
+            case .controlAnswered(let id, let error):
+                guard interrupts.remove(id) != nil else { break }
+                if let error {
+                    interrupted = false
+                    log("the harness didn't take the interrupt: \(error)")
                 }
             }
         }
     }
 
+    /// The turn's end: free, or on to the next message waiting.
+    private func endTurn(error: String?) {
+        if interrupted {
+            log("the turn was interrupted")
+        } else if let error {
+            log("turn ended in error: \(error)")
+        }
+        interrupted = false
+        now.busy = false
+        now.thinking = false
+        now.tools = []
+        now.activity = ""
+        if waiting.isEmpty {
+            tell(.state(now))
+        } else {
+            let next = waiting.removeFirst()
+            now.queued = waiting.map(\.text)
+            begin(id: next.id, text: next.text)
+        }
+    }
+
     /// The echo harness's answer to the message `id`.
     private func echo(id: String, text: String) {
-        guard endedBecause == nil else { return }
+        guard endedBecause == nil, echoTurn == id else { return }
+        echoTurn = nil
         let reply = #"{"type":"assistant","message":{"id":"echo-\#(id)","content":[{"type":"text","text":\#(Self.json(text))}]}}"#
         take(reply)
         take(#"{"type":"result","subtype":"success","is_error":false}"#)

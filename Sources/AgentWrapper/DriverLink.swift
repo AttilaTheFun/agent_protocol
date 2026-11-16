@@ -76,7 +76,7 @@ public struct DriverLink: Sendable {
                     switch message.message {
                     case .send(let send): await core.send(id: send.id.isEmpty ? UUID().uuidString.lowercased() : send.id, text: send.text)
                     case .stop: await core.stop()
-                    case .interrupt: log("driver: an interrupt isn't supported by this harness yet")
+                    case .interrupt: await core.interrupt()
                     case .model(let change): log("driver: changing the model to \(change.model) isn't supported yet")
                     case .approval, .acknowledged, .none: break
                     }

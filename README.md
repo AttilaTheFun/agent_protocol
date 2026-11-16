@@ -102,10 +102,19 @@ the tests' stand-in does.
 - clones each source under `AGENT_SOURCES_DIR` by its name and ref;
 - then runs `claude --resume`.
 Nothing already there is overwritten. A job with no working directory, on a
-runner that sets `AGENT_SESSIONS_DIR`, works in `<dir>/Claude/<agent>`.
+runner that sets `AGENT_SESSIONS_DIR`, works in `<dir>/Claude/<agent>`. The
+harness's working directory, fresh or resumed, is made (with the folders
+above it) before it starts; one that can't be made fails the job, naming it.
+
+**The driver's interrupt** stops the turn under way and keeps the harness for
+the next message: Claude is sent the control request Claude Code's SDKs send
+(`{"type":"control_request","request_id":"<id>","request":{"subtype":"interrupt"}}`),
+answers it with a `control_response`, and ends the turn with its
+`error_during_execution` result. The echo harness's turn just ends,
+unanswered. A stop still ends the agent.
 
 Not yet: Codex and OpenRouter, permission prompts relayed to the driver,
-interrupts and model changes, and the AgentWrapper service. Its harnesses
+model changes, and the AgentWrapper service. Its harnesses
 will come from Visor's agent code (visor_agent).
 
 ## Licence

@@ -18,6 +18,9 @@ public enum ClaudeLine: Sendable, Equatable {
     case toolFinished(id: String)
     /// The turn ended: whether in error, and why.
     case turnEnded(error: String?)
+    /// Claude answered a control request of ours (an interrupt): its id,
+    /// and why it failed when it did.
+    case controlAnswered(requestID: String, error: String?)
 
     /// What `line` means, in order; none for a line that isn't JSON or isn't known.
     public static func read(_ line: String) -> [ClaudeLine] {
@@ -52,6 +55,11 @@ public enum ClaudeLine: Sendable, Equatable {
                 guard block["type"] as? String == "tool_result", let id = block["tool_use_id"] as? String else { return nil }
                 return .toolFinished(id: id)
             }
+        case "control_response":
+            // {"type":"control_response","response":{"subtype":"success"|"error","request_id":…,"error"?:…}}
+            guard let response = object["response"] as? [String: Any], let id = response["request_id"] as? String else { return [] }
+            let failed = response["subtype"] as? String == "error"
+            return [.controlAnswered(requestID: id, error: failed ? (response["error"] as? String ?? "failed") : nil)]
         case "result":
             let failed = object["is_error"] as? Bool ?? false
             return [.turnEnded(error: failed ? (object["result"] as? String ?? object["subtype"] as? String ?? "failed") : nil)]
@@ -70,6 +78,20 @@ public enum ClaudeLine: Sendable, Equatable {
             }
         }
         return name
+    }
+
+    /// An interrupt of the turn under way, as `--input-format stream-json`
+    /// takes it: one line, a control request as Claude Code's SDKs send it
+    /// (claude-agent-sdk's `Query.interrupt()`: its `SDKControlRequest` with
+    /// an `SDKControlInterruptRequest`). Claude answers it with a
+    /// `control_response` of the same `request_id` (`"subtype":"success"`),
+    /// then "[Request interrupted by user]" as a user line and the turn's
+    /// `result` (`"subtype":"error_during_execution"`), and waits for the
+    /// next message (seen of Claude Code 2.1.325).
+    public static func interrupt(requestID: String) -> String {
+        let request: [String: Any] = ["type": "control_request", "request_id": requestID, "request": ["subtype": "interrupt"]]
+        let data = (try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys])) ?? Data()
+        return String(decoding: data, as: UTF8.self)
     }
 
     /// A user's turn, as `--input-format stream-json` takes it: one line.
