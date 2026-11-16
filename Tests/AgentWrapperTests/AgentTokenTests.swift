@@ -152,7 +152,7 @@ final class AgentTokenTests: XCTestCase {
         try await withGRPCServer(transport: transport, services: [dispatcher], interceptors: [seen]) { server in
             let address = try await transport.listeningAddress
             let port = try XCTUnwrap(address.ipv4?.port)
-            let client = try HTTP2ClientTransport.Posix(target: .ipv4(host: "127.0.0.1", port: port), transportSecurity: .plaintext)
+            let client = try HTTP2ClientTransport.Posix(target: .ipv4(address: "127.0.0.1", port: port), transportSecurity: .plaintext)
             try await withGRPCClient(transport: client) { grpc in
                 let job = AgentProtocol_V1_Job.with { $0.agent.uuid = "a5"; $0.token = "t1" }
                 let runner = ReadmeRunner(client: AgentProtocol_V1_AgentDispatcher.Client(wrapping: grpc), job: job)
@@ -176,7 +176,7 @@ final class AgentTokenTests: XCTestCase {
         try await withGRPCServer(transport: transport, services: [TestDispatcher()], interceptors: [seen]) { server in
             let address = try await transport.listeningAddress
             let port = try XCTUnwrap(address.ipv4?.port)
-            let client = try HTTP2ClientTransport.Posix(target: .ipv4(host: "127.0.0.1", port: port), transportSecurity: .plaintext)
+            let client = try HTTP2ClientTransport.Posix(target: .ipv4(address: "127.0.0.1", port: port), transportSecurity: .plaintext)
             try await withGRPCClient(transport: client) { grpc in
                 let job = AgentProtocol_V1_Job.with { $0.agent.uuid = "a6"; $0.token = "t1" }
                 let runner = ReadmeRunner(client: AgentProtocol_V1_AgentDispatcher.Client(wrapping: grpc), job: job)

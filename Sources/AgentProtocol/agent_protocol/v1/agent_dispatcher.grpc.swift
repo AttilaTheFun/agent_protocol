@@ -125,7 +125,8 @@ extension AgentProtocol_V1_AgentDispatcher {
         /// > How a claimed job goes: the dispatcher's own moves follow (Shireworks':
         /// > the issue's labels and comments).
         /// > A wrapper's report carries its agent's token (Job.token) as metadata
-        /// > `authorization: Bearer <token>`.
+        /// > `authorization: Bearer <token>`; a runner's, the token it holds (see
+        /// > Renew).
         ///
         /// - Parameters:
         ///   - request: A streaming request of `AgentProtocol_V1_JobReport` messages.
@@ -144,6 +145,10 @@ extension AgentProtocol_V1_AgentDispatcher {
         /// > Source IDL Documentation:
         /// >
         /// > The claim kept; one not renewed by `claim_expires` is released.
+        /// > The runner shows the job's token as metadata `authorization: Bearer
+        /// > <token>`: Job.token, until a renewal hands it a fresh one
+        /// > (RenewResponse.token), which it shows from then on, on its later Renew
+        /// > and Report.
         ///
         /// - Parameters:
         ///   - request: A streaming request of `AgentProtocol_V1_RenewRequest` messages.
@@ -192,7 +197,8 @@ extension AgentProtocol_V1_AgentDispatcher {
         /// > How a claimed job goes: the dispatcher's own moves follow (Shireworks':
         /// > the issue's labels and comments).
         /// > A wrapper's report carries its agent's token (Job.token) as metadata
-        /// > `authorization: Bearer <token>`.
+        /// > `authorization: Bearer <token>`; a runner's, the token it holds (see
+        /// > Renew).
         ///
         /// - Parameters:
         ///   - request: A request containing a single `AgentProtocol_V1_JobReport` message.
@@ -211,6 +217,10 @@ extension AgentProtocol_V1_AgentDispatcher {
         /// > Source IDL Documentation:
         /// >
         /// > The claim kept; one not renewed by `claim_expires` is released.
+        /// > The runner shows the job's token as metadata `authorization: Bearer
+        /// > <token>`: Job.token, until a renewal hands it a fresh one
+        /// > (RenewResponse.token), which it shows from then on, on its later Renew
+        /// > and Report.
         ///
         /// - Parameters:
         ///   - request: A request containing a single `AgentProtocol_V1_RenewRequest` message.
@@ -257,7 +267,8 @@ extension AgentProtocol_V1_AgentDispatcher {
         /// > How a claimed job goes: the dispatcher's own moves follow (Shireworks':
         /// > the issue's labels and comments).
         /// > A wrapper's report carries its agent's token (Job.token) as metadata
-        /// > `authorization: Bearer <token>`.
+        /// > `authorization: Bearer <token>`; a runner's, the token it holds (see
+        /// > Renew).
         ///
         /// - Parameters:
         ///   - request: A `AgentProtocol_V1_JobReport` message.
@@ -276,6 +287,10 @@ extension AgentProtocol_V1_AgentDispatcher {
         /// > Source IDL Documentation:
         /// >
         /// > The claim kept; one not renewed by `claim_expires` is released.
+        /// > The runner shows the job's token as metadata `authorization: Bearer
+        /// > <token>`: Job.token, until a renewal hands it a fresh one
+        /// > (RenewResponse.token), which it shows from then on, on its later Renew
+        /// > and Report.
         ///
         /// - Parameters:
         ///   - request: A `AgentProtocol_V1_RenewRequest` message.
@@ -451,7 +466,8 @@ extension AgentProtocol_V1_AgentDispatcher {
         /// > How a claimed job goes: the dispatcher's own moves follow (Shireworks':
         /// > the issue's labels and comments).
         /// > A wrapper's report carries its agent's token (Job.token) as metadata
-        /// > `authorization: Bearer <token>`.
+        /// > `authorization: Bearer <token>`; a runner's, the token it holds (see
+        /// > Renew).
         ///
         /// - Parameters:
         ///   - request: A request containing a single `AgentProtocol_V1_JobReport` message.
@@ -475,6 +491,10 @@ extension AgentProtocol_V1_AgentDispatcher {
         /// > Source IDL Documentation:
         /// >
         /// > The claim kept; one not renewed by `claim_expires` is released.
+        /// > The runner shows the job's token as metadata `authorization: Bearer
+        /// > <token>`: Job.token, until a renewal hands it a fresh one
+        /// > (RenewResponse.token), which it shows from then on, on its later Renew
+        /// > and Report.
         ///
         /// - Parameters:
         ///   - request: A request containing a single `AgentProtocol_V1_RenewRequest` message.
@@ -552,7 +572,8 @@ extension AgentProtocol_V1_AgentDispatcher {
         /// > How a claimed job goes: the dispatcher's own moves follow (Shireworks':
         /// > the issue's labels and comments).
         /// > A wrapper's report carries its agent's token (Job.token) as metadata
-        /// > `authorization: Bearer <token>`.
+        /// > `authorization: Bearer <token>`; a runner's, the token it holds (see
+        /// > Renew).
         ///
         /// - Parameters:
         ///   - request: A request containing a single `AgentProtocol_V1_JobReport` message.
@@ -587,6 +608,10 @@ extension AgentProtocol_V1_AgentDispatcher {
         /// > Source IDL Documentation:
         /// >
         /// > The claim kept; one not renewed by `claim_expires` is released.
+        /// > The runner shows the job's token as metadata `authorization: Bearer
+        /// > <token>`: Job.token, until a renewal hands it a fresh one
+        /// > (RenewResponse.token), which it shows from then on, on its later Renew
+        /// > and Report.
         ///
         /// - Parameters:
         ///   - request: A request containing a single `AgentProtocol_V1_RenewRequest` message.
@@ -658,7 +683,8 @@ extension AgentProtocol_V1_AgentDispatcher.ClientProtocol {
     /// > How a claimed job goes: the dispatcher's own moves follow (Shireworks':
     /// > the issue's labels and comments).
     /// > A wrapper's report carries its agent's token (Job.token) as metadata
-    /// > `authorization: Bearer <token>`.
+    /// > `authorization: Bearer <token>`; a runner's, the token it holds (see
+    /// > Renew).
     ///
     /// - Parameters:
     ///   - request: A request containing a single `AgentProtocol_V1_JobReport` message.
@@ -688,6 +714,10 @@ extension AgentProtocol_V1_AgentDispatcher.ClientProtocol {
     /// > Source IDL Documentation:
     /// >
     /// > The claim kept; one not renewed by `claim_expires` is released.
+    /// > The runner shows the job's token as metadata `authorization: Bearer
+    /// > <token>`: Job.token, until a renewal hands it a fresh one
+    /// > (RenewResponse.token), which it shows from then on, on its later Renew
+    /// > and Report.
     ///
     /// - Parameters:
     ///   - request: A request containing a single `AgentProtocol_V1_RenewRequest` message.
@@ -757,7 +787,8 @@ extension AgentProtocol_V1_AgentDispatcher.ClientProtocol {
     /// > How a claimed job goes: the dispatcher's own moves follow (Shireworks':
     /// > the issue's labels and comments).
     /// > A wrapper's report carries its agent's token (Job.token) as metadata
-    /// > `authorization: Bearer <token>`.
+    /// > `authorization: Bearer <token>`; a runner's, the token it holds (see
+    /// > Renew).
     ///
     /// - Parameters:
     ///   - message: request message to send.
@@ -791,6 +822,10 @@ extension AgentProtocol_V1_AgentDispatcher.ClientProtocol {
     /// > Source IDL Documentation:
     /// >
     /// > The claim kept; one not renewed by `claim_expires` is released.
+    /// > The runner shows the job's token as metadata `authorization: Bearer
+    /// > <token>`: Job.token, until a renewal hands it a fresh one
+    /// > (RenewResponse.token), which it shows from then on, on its later Renew
+    /// > and Report.
     ///
     /// - Parameters:
     ///   - message: request message to send.
