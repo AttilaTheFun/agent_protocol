@@ -16,9 +16,11 @@ import Foundation
 ///   working directory works in `<dir>/Claude/<agent>` there;
 /// - `AGENT_SOURCES_DIR`: where a resumed session's `sources` are cloned;
 /// - `AGENT_TOKEN`: the agent's token (Job.token), if its job had one:
-///   shown to its driver and dispatcher (AgentToken), and never given to
-///   the harness. Only here: not in AGENT_JOB, and no flag, so it stays off
-///   every command line.
+///   shown to its driver and dispatcher (AgentToken). Only here: not in
+///   AGENT_JOB, and no flag, so it stays off every command line. The
+///   wrapper unsets it once read and leaves it out of the harness's
+///   environment, so no child inherits it; the harness, as the same user,
+///   can still read it in /proc/<wrapper>/environ (AgentToken).
 ///
 /// By hand, the same as flags:
 ///
