@@ -122,8 +122,21 @@ in `AGENT_TOKEN`, beside `AGENT_ID` and `AGENT_JOB`, never in `AGENT_JOB`
 or on a command line. The wrapper shows it on each call it makes for the
 agent, its driver's `Connect` and `Conversation` and its dispatcher's
 `Report`, as gRPC metadata `authorization: Bearer <token>`, and takes a
-fresh one when the driver sends it (`DriverMessage.token`). The harness
-isn't given it. Not yet: Claude's MCP configuration carrying it to the
+fresh one when the driver sends it (`DriverMessage.token`).
+
+The harness isn't handed it: the wrapper unsets `AGENT_TOKEN` as soon as
+it has read it and leaves it out of the harness's environment, so no
+child inherits it. That isn't secrecy from the harness. On Linux,
+`unsetenv` doesn't change `/proc/<pid>/environ` (the block the process was
+started with), and the harness runs as the wrapper's user, so it can read
+the wrapper's `/proc/<wrapper>/environ`, and its memory, if it looks. Treat
+the token as the agent's, which a hostile harness could use for as long
+as it is valid.
+
+The wrapper's calls are plaintext HTTP/2 (`http://host:port`, no TLS), so
+the bearer token crosses the network as written. That is fine only over
+the container's own link (agent-proxy's dial-in, on the host) or the
+tailnet, which encrypts it; never over any other network. Not yet: Claude's MCP configuration carrying it to the
 server's MCP endpoint, which comes with that endpoint.
 
 Not yet: Codex and OpenRouter, permission prompts relayed to the driver,
