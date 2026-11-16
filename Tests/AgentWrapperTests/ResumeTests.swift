@@ -87,7 +87,7 @@ final class ResumeTests: XCTestCase {
 
     func testTheJobsResumeAndSourcesAndTheRunnersFolders() throws {
         let job = """
-            {"agent": "s9", "dispatcherURL": "http://d", "title": "Moved", "resumeSessionID": "c-123",
+            {"agent": "5e55f0a9-0000-4000-8000-000000000009", "dispatcherURL": "http://d", "title": "Moved", "resumeSessionID": "c-123",
              "sources": [{"repository": "https://github.com/AttilaTheFun/visor.git", "ref": "main", "name": "visor"}]}
             """
         let options = try WrapperOptions(arguments: [], environment: [
@@ -97,7 +97,7 @@ final class ResumeTests: XCTestCase {
         XCTAssertEqual(options.sources.map(\.name), ["visor"])
         XCTAssertEqual(options.sources.first?.ref, "main")
         XCTAssertEqual(options.sourcesDirectory, "/Volumes/Sources")
-        XCTAssertEqual(options.spec.workingDirectory, "/Volumes/Sessions/Claude/s9", "a folder of its own where sessions are kept")
+        XCTAssertEqual(options.spec.workingDirectory, "/Volumes/Sessions/Claude/5e55f0a9-0000-4000-8000-000000000009", "a folder of its own where sessions are kept")
         let named = try WrapperOptions(arguments: [], environment: [
             "AGENT_JOB": #"{"agent": "s9", "dispatcherURL": "http://d", "workingDirectory": "/w"}"#, "AGENT_SESSIONS_DIR": "/Volumes/Sessions",
         ])

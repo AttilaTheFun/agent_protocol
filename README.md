@@ -102,7 +102,10 @@ the tests' stand-in does.
 - clones each source under `AGENT_SOURCES_DIR` by its name and ref;
 - then runs `claude --resume`.
 Nothing already there is overwritten. A job with no working directory, on a
-runner that sets `AGENT_SESSIONS_DIR`, works in `<dir>/Claude/<agent>`. The
+runner that sets `AGENT_SESSIONS_DIR`, works in `<dir>/Claude/<agent>`; the
+wrapper refuses to start unless the agent's id is a UUID and the harness a
+single folder name (no `/`, `.` or `..`, not empty), so the folder stays
+under that directory. The
 harness's working directory, fresh or resumed, is made (with the folders
 above it) before it starts; one that can't be made fails the job, naming it.
 

@@ -45,9 +45,10 @@ final class FolderAndInterruptTests: XCTestCase {
         let sessions = scratch("sessions")
         defer { try? FileManager.default.removeItem(at: sessions) }
         let options = try WrapperOptions(arguments: [], environment: [
-            "AGENT_ID": "u9@http://dispatcher", "AGENT_JOB": #"{"prompt":"where"}"#, "AGENT_SESSIONS_DIR": sessions.path,
+            "AGENT_ID": "0a9e4e10-0000-4000-8000-000000000009@http://dispatcher", "AGENT_JOB": #"{"prompt":"where"}"#,
+            "AGENT_SESSIONS_DIR": sessions.path,
         ])
-        let folder = sessions.appendingPathComponent("Claude/u9").path
+        let folder = sessions.appendingPathComponent("Claude/0a9e4e10-0000-4000-8000-000000000009").path
         XCTAssertEqual(options.spec.workingDirectory, folder)
         XCTAssertFalse(FileManager.default.fileExists(atPath: sessions.path), "nothing made it yet")
         let launch = try HarnessLaunch.for(options.spec, claudeProgram: FakeClaude.interruptible)
@@ -59,6 +60,38 @@ final class FolderAndInterruptTests: XCTestCase {
         XCTAssertEqual(worked, URL(fileURLWithPath: folder).resolvingSymlinksInPath().path)
         await core.stop(grace: .milliseconds(200))
         _ = await core.ended()
+    }
+
+    func testTheSessionsFolderIsNamedOnlyByAUUIDAndASingleHarnessName() throws {
+        let id = "0a9e4e10-0000-4000-8000-00000000000a"
+        func options(_ agent: String, harness: String? = nil) throws -> WrapperOptions {
+            let job = harness.map { #"{"harness":"\#($0)"}"# } ?? "{}"
+            return try WrapperOptions(arguments: [], environment: [
+                "AGENT_ID": "\(agent)@http://dispatcher", "AGENT_JOB": job, "AGENT_SESSIONS_DIR": "/Volumes/Sessions",
+            ])
+        }
+        XCTAssertEqual(try options(id).spec.workingDirectory, "/Volumes/Sessions/Claude/\(id)")
+        XCTAssertEqual(try options(id, harness: "echo").spec.workingDirectory, "/Volumes/Sessions/Echo/\(id)")
+        for bad in ["u9", "../../etc", "\(id)/..", "0a9e4e10-0000-4000-8000-00000000000a/x"] {
+            XCTAssertThrowsError(try options(bad), "agent \(bad)") { error in
+                guard case WrapperOptions.Problem.bad(let why) = error else { return XCTFail("\(error)") }
+                XCTAssertTrue(why.contains("isn't a UUID"), why)
+            }
+        }
+        for bad in ["..", ".", "a/b", "/claude"] {
+            XCTAssertThrowsError(try options(id, harness: bad), "harness \(bad)") { error in
+                guard case WrapperOptions.Problem.bad(let why) = error else { return XCTFail("\(error)") }
+                XCTAssertTrue(why.contains("isn't a single folder name"), why)
+            }
+        }
+        XCTAssertThrowsError(try WrapperOptions(arguments: ["--harness", ""], environment: [
+            "AGENT_ID": "\(id)@http://dispatcher", "AGENT_SESSIONS_DIR": "/Volumes/Sessions",
+        ]), "an empty harness")
+        // A job that names its folder is taken as it is: no folder is built.
+        let named = try WrapperOptions(arguments: [], environment: [
+            "AGENT_ID": "u9@http://dispatcher", "AGENT_JOB": #"{"workingDirectory":"/w"}"#, "AGENT_SESSIONS_DIR": "/Volumes/Sessions",
+        ])
+        XCTAssertEqual(named.spec.workingDirectory, "/w")
     }
 
     func testAFolderThatCantBeMadeIsNamed() async throws {

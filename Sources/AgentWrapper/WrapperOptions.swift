@@ -13,7 +13,8 @@ import Foundation
 /// - `AGENT_DRIVER_URL`: the driver it dials, if any;
 /// - `AGENT_RUNNER`: the runner's name;
 /// - `AGENT_SESSIONS_DIR`: where the runner keeps sessions; a job with no
-///   working directory works in `<dir>/Claude/<agent>` there;
+///   working directory works in `<dir>/Claude/<agent>` there (refused
+///   unless the agent's id is a UUID and its harness one folder's name);
 /// - `AGENT_SOURCES_DIR`: where a resumed session's `sources` are cloned;
 /// - `AGENT_TOKEN`: the agent's token (Job.token), if its job had one:
 ///   shown to its driver and dispatcher (AgentToken), and never given to
@@ -81,8 +82,24 @@ public struct WrapperOptions: Sendable, Equatable {
         // A session with no folder named, where the runner keeps sessions
         // (AGENT_SESSIONS_DIR: /Volumes/Sessions): a folder of its own
         // there, <dir>/Claude/<id>, as Visor's SessionFolders gives one.
+        // Its id and harness name it, so each must be one folder's name:
+        // the id a UUID, the harness no path (a "/", "..", or nothing),
+        // else the folder could be anywhere.
         if spec.workingDirectory.isEmpty, let sessions = Self.given(environment["AGENT_SESSIONS_DIR"]) {
+            try Self.checkFolderParts(agent: agent.uuid, harness: spec.harness)
             spec.workingDirectory = "\(sessions)/\(Self.folderName(of: spec.harness))/\(agent.uuid)"
+        }
+    }
+
+    /// The agent's id and harness, before they name its folder under
+    /// AGENT_SESSIONS_DIR: refused unless the id is a UUID and the harness
+    /// a single path component.
+    static func checkFolderParts(agent uuid: String, harness: String) throws(Problem) {
+        guard UUID(uuidString: uuid) != nil else {
+            throw .bad("the agent's id \"\(uuid)\" isn't a UUID, so it can't name its folder under AGENT_SESSIONS_DIR")
+        }
+        guard !harness.isEmpty, harness != ".", harness != "..", !harness.contains("/"), !harness.contains("\0") else {
+            throw .bad("the harness \"\(harness)\" isn't a single folder name (no \"/\", \".\" or \"..\", not empty), so it can't name its folder under AGENT_SESSIONS_DIR")
         }
     }
 
