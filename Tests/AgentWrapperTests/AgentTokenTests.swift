@@ -95,7 +95,7 @@ final class AgentTokenTests: XCTestCase {
         let options = try WrapperOptions(arguments: [], environment: ["AGENT_ID": "u1@http://d", "AGENT_JOB": #"{"harness":"echo"}"#, "AGENT_TOKEN": ""])
         XCTAssertNil(options.token, "an empty AGENT_TOKEN is none")
         let token = AgentToken(options.token ?? "")  // as agent-wrapper's main makes it
-        XCTAssertTrue(token.metadata[stringValues: AgentToken.metadataKey].isEmpty)
+        XCTAssertEqual(Array(token.metadata[stringValues: AgentToken.metadataKey]), [])
 
         let seen = SeenCalls()
         let transport = HTTP2ServerTransport.Posix(address: .ipv4(host: "127.0.0.1", port: 0), transportSecurity: .plaintext)
