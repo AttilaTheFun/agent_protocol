@@ -93,6 +93,22 @@ final class AgentTokenTests: XCTestCase {
         XCTAssertEqual(environment, ["AGENT_ID": "u1@http://d", "PATH": "/bin"])
     }
 
+    func testTheTokenIsUnsetSoNoChildInheritsIt() throws {
+        setenv("AGENT_TOKEN", "secret", 1)
+        AgentToken.removeFromEnvironment()
+        XCTAssertNil(getenv("AGENT_TOKEN"))
+        XCTAssertNil(ProcessInfo.processInfo.environment["AGENT_TOKEN"])
+        // A child started with the environment as it is now.
+        let child = Process()
+        child.executableURL = URL(fileURLWithPath: "/bin/sh")
+        child.arguments = ["-c", "printf %s \"${AGENT_TOKEN-unset}\""]
+        let output = Pipe()
+        child.standardOutput = output
+        try child.run()
+        child.waitUntilExit()
+        XCTAssertEqual(String(decoding: output.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self), "unset")
+    }
+
     func testTheMetadataIsTheBearerToken() {
         XCTAssertEqual(Array(AgentToken().metadata[stringValues: AgentToken.metadataKey]), [])
         let token = AgentToken("t1")
