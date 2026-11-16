@@ -27,8 +27,11 @@ do {
     log("\(error)\n\n\(WrapperOptions.usage)")
     exit(2)
 }
-// The agent's token (AGENT_TOKEN): shown on each call made for it.
+// The agent's token (AGENT_TOKEN): shown on each call made for it, and
+// unset here at once so no child inherits it (AgentToken.removeFromEnvironment
+// says what that does and doesn't hide).
 let token = AgentToken(options.token ?? "")
+AgentToken.removeFromEnvironment()
 let reports = options.dispatcherURL.flatMap {
     DispatcherReports(url: $0, agent: options.agent, runner: options.runner ?? ProcessInfo.processInfo.hostName, token: token)
 }

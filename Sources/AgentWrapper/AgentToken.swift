@@ -1,3 +1,4 @@
+import Foundation
 import GRPCCore
 import Synchronization
 
@@ -24,6 +25,20 @@ public final class AgentToken: Sendable {
     public func replace(with fresh: String) {
         guard !fresh.isEmpty else { return }
         held.withLock { $0 = fresh }
+    }
+
+    /// AGENT_TOKEN unset in the wrapper's own process, once WrapperOptions
+    /// has read it, so no child the wrapper starts (the harness, git, a
+    /// tool) inherits it, whatever environment it is started with.
+    ///
+    /// This doesn't hide it from the harness. On Linux, unsetenv changes
+    /// only the C library's copy of the environment: /proc/<wrapper>/environ
+    /// is the block the kernel was given at exec, and still shows the token
+    /// (checked in visor-agent 0.58). The harness runs as the same user, so
+    /// it can read that, and the wrapper's memory, if it looks. The token
+    /// is not handed to the harness; it is not a secret from it.
+    public static func removeFromEnvironment() {
+        unsetenv("AGENT_TOKEN")
     }
 
     /// The metadata a call carries: the token, or nothing.
