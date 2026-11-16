@@ -174,8 +174,9 @@ public nonisolated struct AgentProtocol_V1_Job: @unchecked Sendable {
   /// (docs/retiring-multipass.md, section 4): the runner hands it to the
   /// wrapper in AGENT_TOKEN, never on a command line, and the wrapper shows
   /// it on each call it makes for the agent, as gRPC metadata
-  /// `authorization: Bearer <token>`. Empty from a dispatcher that mints
-  /// none.
+  /// `authorization: Bearer <token>`. Empty means none (a dispatcher that
+  /// mints none): the runner sets no AGENT_TOKEN, and no call shows a
+  /// bearer.
   public var token: String {
     get {_storage._token}
     set {_uniqueStorage()._token = newValue}
@@ -184,13 +185,23 @@ public nonisolated struct AgentProtocol_V1_Job: @unchecked Sendable {
   /// Whether the agent acts without asking (true: Claude's
   /// `--permission-mode bypassPermissions`) or asks before acting (false:
   /// each permission prompt goes to its driver as `WrapperMessage.approval`,
-  /// through the wrapper's `mcp__visor__approve`). The runner hands it to the
-  /// wrapper in AGENT_JOB (`skipPermissions`); a job without it asks. Visor's
-  /// dispatcher sets it from the session's own setting.
+  /// through the wrapper's `mcp__visor__approve`). Visor's dispatcher sets
+  /// it, true or false, from the session's own setting.
+  ///
+  /// With presence: absent is a dispatcher that predates the field (Visor
+  /// 0.59.1 and earlier), which leaves it to the runner. The runner hands
+  /// it to the wrapper in AGENT_JOB as `skipPermissions` only when it is
+  /// present (true or false), and passes `--skip-permissions` only when it
+  /// is absent (as runners always have) or true; the README has the
+  /// runner's part.
   public var skipPermissions: Bool {
-    get {_storage._skipPermissions}
+    get {_storage._skipPermissions ?? false}
     set {_uniqueStorage()._skipPermissions = newValue}
   }
+  /// Returns true if `skipPermissions` has been explicitly set.
+  public var hasSkipPermissions: Bool {_storage._skipPermissions != nil}
+  /// Clears the value of `skipPermissions`. Subsequent reads from it will return its default value.
+  public mutating func clearSkipPermissions() {_uniqueStorage()._skipPermissions = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -530,7 +541,7 @@ nonisolated extension AgentProtocol_V1_Job: SwiftProtobuf.Message, SwiftProtobuf
     var _resumeSessionID: String = String()
     var _sources: [AgentProtocol_V1_Source] = []
     var _token: String = String()
-    var _skipPermissions: Bool = false
+    var _skipPermissions: Bool? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -653,9 +664,9 @@ nonisolated extension AgentProtocol_V1_Job: SwiftProtobuf.Message, SwiftProtobuf
       if !_storage._token.isEmpty {
         try visitor.visitSingularStringField(value: _storage._token, fieldNumber: 16)
       }
-      if _storage._skipPermissions != false {
-        try visitor.visitSingularBoolField(value: _storage._skipPermissions, fieldNumber: 17)
-      }
+      try { if let v = _storage._skipPermissions {
+        try visitor.visitSingularBoolField(value: v, fieldNumber: 17)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
