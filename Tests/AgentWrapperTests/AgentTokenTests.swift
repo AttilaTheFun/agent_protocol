@@ -1,7 +1,9 @@
 // The agent's token: carried in the Job, handed to the wrapper in
 // AGENT_TOKEN, kept from the harness, and shown as metadata on each call
 // the wrapper makes for the agent (its driver's Connect and Conversation,
-// its dispatcher's Report), a fresh one from the driver shown from then on.
+// its dispatcher's Report), a fresh one from the driver shown from then on;
+// and a runner's, on its Renew and Report, a fresh one from a renewal
+// (RenewResponse.token) shown from then on.
 
 import AgentProtocol
 import AgentWrapper
@@ -45,6 +47,56 @@ final class TestDispatcher: AgentProtocol_V1_AgentDispatcher.SimpleServiceProtoc
     }
 }
 
+/// A dispatcher whose renewals hand out the tokens given, in turn (""
+/// for none, as an older dispatcher), each with a later expiry.
+final class RefreshingDispatcher: AgentProtocol_V1_AgentDispatcher.SimpleServiceProtocol {
+    let fresh: Mutex<[String]>
+
+    init(fresh: [String]) {
+        self.fresh = Mutex(fresh)
+    }
+
+    func claim(request: AgentProtocol_V1_ClaimRequest, context: ServerContext) async throws -> AgentProtocol_V1_ClaimResponse {
+        .init()
+    }
+
+    func report(request: AgentProtocol_V1_JobReport, context: ServerContext) async throws -> AgentProtocol_V1_ReportResponse {
+        .init()
+    }
+
+    func renew(request: AgentProtocol_V1_RenewRequest, context: ServerContext) async throws -> AgentProtocol_V1_RenewResponse {
+        let token = fresh.withLock { $0.isEmpty ? "" : $0.removeFirst() }
+        return .with {
+            $0.claimExpires = .init(date: Date().addingTimeInterval(60))
+            $0.token = token
+        }
+    }
+}
+
+/// A runner's part as the README has it: its bearer on Renew and Report is
+/// Job.token until a renewal hands it a fresh one (RenewResponse.token),
+/// which it holds from then on; an empty one leaves it as it was.
+struct ReadmeRunner {
+    let client: AgentProtocol_V1_AgentDispatcher.Client<HTTP2ClientTransport.Posix>
+    let agent: AgentProtocol_V1_AgentID
+    let token: AgentToken
+
+    init(client: AgentProtocol_V1_AgentDispatcher.Client<HTTP2ClientTransport.Posix>, job: AgentProtocol_V1_Job) {
+        self.client = client
+        agent = job.agent
+        token = AgentToken(job.token)
+    }
+
+    func renew() async throws {
+        let response = try await client.renew(.with { $0.agent = agent }, metadata: token.metadata)
+        token.replace(with: response.token)
+    }
+
+    func release(reason: String) async throws {
+        _ = try await client.report(.with { $0.agent = agent; $0.released = .with { $0.reason = reason } }, metadata: token.metadata)
+    }
+}
+
 /// A driver that sends a fresh token on the first connection, then drops
 /// it, so the wrapper connects again.
 final class RefreshingDriver: AgentProtocol_V1_AgentDriver.SimpleServiceProtocol {
@@ -77,6 +129,66 @@ final class AgentTokenTests: XCTestCase {
         let read = try AgentProtocol_V1_DriverMessage(serializedBytes: try fresh.serializedBytes() as [UInt8])
         guard case .token(let token) = read.message else { return XCTFail("a fresh token") }
         XCTAssertEqual(token, "t2")
+    }
+
+    func testARenewalCarriesAFreshToken() throws {
+        let renewed = AgentProtocol_V1_RenewResponse.with { $0.claimExpires = .init(seconds: 100); $0.token = "fresh" }
+        let read = try AgentProtocol_V1_RenewResponse(serializedBytes: try renewed.serializedBytes() as [UInt8])
+        XCTAssertEqual(read.token, "fresh")
+        XCTAssertEqual(read.claimExpires.seconds, 100)
+        XCTAssertEqual(try AgentProtocol_V1_RenewResponse(jsonString: try renewed.jsonString()).token, "fresh")
+        XCTAssertTrue(try renewed.jsonString().contains(#""token":"fresh""#))
+        // An older dispatcher's renewal: no token, so the runner keeps its own.
+        let older = AgentProtocol_V1_RenewResponse.with { $0.claimExpires = .init(seconds: 100) }
+        XCTAssertEqual(try AgentProtocol_V1_RenewResponse(serializedBytes: try older.serializedBytes() as [UInt8]).token, "")
+        XCTAssertEqual(try AgentProtocol_V1_RenewResponse(jsonString: #"{"claimExpires":"1970-01-01T00:01:40Z"}"#).token, "")
+    }
+
+    func testARunnerTakesAFreshTokenFromARenewal() async throws {
+        let seen = SeenCalls()
+        let transport = HTTP2ServerTransport.Posix(address: .ipv4(host: "127.0.0.1", port: 0), transportSecurity: .plaintext)
+        // A fresh token, then a renewal with none, then another fresh one.
+        let dispatcher = RefreshingDispatcher(fresh: ["t2", "", "t3"])
+        try await withGRPCServer(transport: transport, services: [dispatcher], interceptors: [seen]) { server in
+            let address = try await transport.listeningAddress
+            let port = try XCTUnwrap(address.ipv4?.port)
+            let client = try HTTP2ClientTransport.Posix(target: .ipv4(address: "127.0.0.1", port: port), transportSecurity: .plaintext)
+            try await withGRPCClient(transport: client) { grpc in
+                let job = AgentProtocol_V1_Job.with { $0.agent.uuid = "a5"; $0.token = "t1" }
+                let runner = ReadmeRunner(client: AgentProtocol_V1_AgentDispatcher.Client(wrapping: grpc), job: job)
+                try await runner.renew()
+                XCTAssertEqual(runner.token.value, "t2")
+                try await runner.renew()
+                XCTAssertEqual(runner.token.value, "t2", "an empty one leaves it")
+                try await runner.release(reason: "done")
+                try await runner.renew()
+                try await runner.release(reason: "done")
+                XCTAssertEqual(seen.shown("Renew"), ["Bearer t1", "Bearer t2", "Bearer t2"])
+                XCTAssertEqual(seen.shown("Report"), ["Bearer t2", "Bearer t3"])
+            }
+            server.beginGracefulShutdown()
+        }
+    }
+
+    func testARunnerKeepsItsTokenWithAnOlderDispatcher() async throws {
+        let seen = SeenCalls()
+        let transport = HTTP2ServerTransport.Posix(address: .ipv4(host: "127.0.0.1", port: 0), transportSecurity: .plaintext)
+        try await withGRPCServer(transport: transport, services: [TestDispatcher()], interceptors: [seen]) { server in
+            let address = try await transport.listeningAddress
+            let port = try XCTUnwrap(address.ipv4?.port)
+            let client = try HTTP2ClientTransport.Posix(target: .ipv4(address: "127.0.0.1", port: port), transportSecurity: .plaintext)
+            try await withGRPCClient(transport: client) { grpc in
+                let job = AgentProtocol_V1_Job.with { $0.agent.uuid = "a6"; $0.token = "t1" }
+                let runner = ReadmeRunner(client: AgentProtocol_V1_AgentDispatcher.Client(wrapping: grpc), job: job)
+                try await runner.renew()
+                try await runner.renew()
+                try await runner.release(reason: "done")
+                XCTAssertEqual(runner.token.value, "t1")
+                XCTAssertEqual(seen.shown("Renew"), ["Bearer t1", "Bearer t1"])
+                XCTAssertEqual(seen.shown("Report"), ["Bearer t1"])
+            }
+            server.beginGracefulShutdown()
+        }
     }
 
     func testTheTokenComesFromTheEnvironmentAlone() throws {

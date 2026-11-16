@@ -167,6 +167,20 @@ the bearer token crosses the network as written. That is fine only over
 the container's own link (agent-proxy's dial-in, on the host) or the
 tailnet, which encrypts it; never over any other network.
 
+**A runner's copy of the token** is its bearer on the dispatcher's `Renew`
+and `Report` for the job (`authorization: Bearer <token>`), and it expires
+too (Visor's after an hour). A runner:
+- starts with `Job.token`;
+- on each `RenewResponse` with a non-empty `token`, holds that instead, and
+  shows it on every later `Renew` and `Report` for the job;
+- keeps the one it holds when `token` is empty (an older dispatcher sends
+  none).
+
+It needn't pass the fresh one to the wrapper: the wrapper's copy is
+refreshed by its driver. A runner that ignores the field keeps showing
+`Job.token`, which Visor accepts on `Renew` and `Report` past its `exp`
+while the job is held.
+
 **The agent's MCP server, "visor", and its approvals.** Claude is given
 the driver's MCP tools (Visor's `send_message`, `read_inbox`,
 `list_sessions`, …), named `mcp__visor__<tool>` as in a session on the

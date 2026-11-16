@@ -435,6 +435,15 @@ public nonisolated struct AgentProtocol_V1_RenewResponse: Sendable {
   /// Clears the value of `claimExpires`. Subsequent reads from it will return its default value.
   public mutating func clearClaimExpires() {self._claimExpires = nil}
 
+  /// A fresh token for the job (Job.token expires: Visor's last an hour),
+  /// which the runner shows from then on as its bearer on its later Renew
+  /// and Report. Empty: the runner keeps the one it holds, as it does with
+  /// a dispatcher that sends none. A runner that ignores it keeps showing
+  /// Job.token, so a dispatcher that sends it accepts that one on Renew and
+  /// Report past its `exp` while the job is held (Visor does). The wrapper's
+  /// own copy is refreshed by its driver (DriverMessage.token), not by this.
+  public var token: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -1127,7 +1136,7 @@ nonisolated extension AgentProtocol_V1_RenewRequest: SwiftProtobuf.Message, Swif
 
 nonisolated extension AgentProtocol_V1_RenewResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RenewResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}claim_expires\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}claim_expires\0\u{1}token\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1136,6 +1145,7 @@ nonisolated extension AgentProtocol_V1_RenewResponse: SwiftProtobuf.Message, Swi
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularMessageField(value: &self._claimExpires) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.token) }()
       default: break
       }
     }
@@ -1149,11 +1159,15 @@ nonisolated extension AgentProtocol_V1_RenewResponse: SwiftProtobuf.Message, Swi
     try { if let v = self._claimExpires {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
     } }()
+    if !self.token.isEmpty {
+      try visitor.visitSingularStringField(value: self.token, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: AgentProtocol_V1_RenewResponse, rhs: AgentProtocol_V1_RenewResponse) -> Bool {
     if lhs._claimExpires != rhs._claimExpires {return false}
+    if lhs.token != rhs.token {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

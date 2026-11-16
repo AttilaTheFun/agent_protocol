@@ -20,9 +20,14 @@ service AgentDispatcher {
   // How a claimed job goes: the dispatcher's own moves follow (Shireworks':
   // the issue's labels and comments).
   // A wrapper's report carries its agent's token (Job.token) as metadata
-  // `authorization: Bearer <token>`.
+  // `authorization: Bearer <token>`; a runner's, the token it holds (see
+  // Renew).
   rpc Report(JobReport) returns (ReportResponse);
   // The claim kept; one not renewed by `claim_expires` is released.
+  // The runner shows the job's token as metadata `authorization: Bearer
+  // <token>`: Job.token, until a renewal hands it a fresh one
+  // (RenewResponse.token), which it shows from then on, on its later Renew
+  // and Report.
   rpc Renew(RenewRequest) returns (RenewResponse);
 }
 
@@ -150,4 +155,12 @@ message RenewRequest {
 message RenewResponse {
   // A later expiry, or none when the claim is no longer the runner's.
   google.protobuf.Timestamp claim_expires = 1;
+  // A fresh token for the job (Job.token expires: Visor's last an hour),
+  // which the runner shows from then on as its bearer on its later Renew
+  // and Report. Empty: the runner keeps the one it holds, as it does with
+  // a dispatcher that sends none. A runner that ignores it keeps showing
+  // Job.token, so a dispatcher that sends it accepts that one on Renew and
+  // Report past its `exp` while the job is held (Visor does). The wrapper's
+  // own copy is refreshed by its driver (DriverMessage.token), not by this.
+  string token = 2;
 }
