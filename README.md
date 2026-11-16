@@ -128,6 +128,20 @@ driver's own computer, and, when the agent asks before acting
   `--permission-prompt-tool mcp__visor__approve` when the agent asks, or
   `--permission-mode bypassPermissions` when it acts. A resumed session
   the same. Nothing secret is on a command line or in the configuration.
+- `visor` is the only server the wrapper adds, and it takes none of
+  Claude's own away: no `--strict-mcp-config`, `--bare` or
+  `--setting-sources`, and Claude runs with the wrapper's environment
+  (`HOME`, `CLAUDE_CONFIG_DIR`; less `AGENT_TOKEN`) in the job's working
+  directory. So Claude loads its user and project MCP servers as it would
+  anyway, beside `visor`. In a Shireworks container that is where
+  Shireworks' MCP comes from: the container's own Claude configuration,
+  reaching Shireworks through the container network and agent-proxy
+  (`/mcp/shireworks`). Visor's MCP comes through the wrapper (this
+  server) and nothing else of the driver's computer: Visor answers it
+  with its own tools, not the MCP servers that computer passes on to its
+  native sessions (Logan, 2026-11-16). GitHub is no MCP server at all:
+  `gh` is the plain CLI, over HTTPS through the container network and
+  agent-proxy, which adds the agent account's credentials.
 - `agent-wrapper mcp` is that server: a pipe between Claude's MCP client
   (its stdin and stdout) and the wrapper's socket, nothing more.
 - The wrapper relays each JSON-RPC message, verbatim, to the driver as
@@ -171,7 +185,11 @@ driver's own computer, and, when the agent asks before acting
   Take one with no `id` as a notification (`notifications/initialized`,
   `notifications/cancelled`) or the client's answer to a request of the
   server's own. Keep per-connection state by `client`. `approve` need not
-  be listed (the wrapper adds it) and is never called through MCP.
+  be listed (the wrapper adds it) and is never called through MCP. Visor
+  lists and serves only its own tools here (`list_sessions`,
+  `send_message`, `read_inbox`, …), never the MCP servers its computer
+  passes on to native sessions: the agent's other servers are its
+  container's.
 - Answer each `WrapperMessage.approval` with a `DriverMessage.approval`
   of the same `request_id`: `allow`, and when it changes the input (an
   AskUserQuestion's answers) `updated_input_json`; or not, with a
