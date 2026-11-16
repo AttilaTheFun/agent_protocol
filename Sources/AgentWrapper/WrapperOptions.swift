@@ -9,9 +9,10 @@ import Foundation
 ///   sourceURL, repository, ref, harness?, model?, effort?, labels,
 ///   workingDirectory?, driverURL?, resumeSessionID?, sources?,
 ///   skipPermissions?}`, where `sources` is `[{repository, ref, name}]` and
-///   `skipPermissions` (Job.skip_permissions, a boolean) is whether the
-///   agent acts without asking; without it, it asks (its approvals go to
-///   its driver);
+///   `skipPermissions` is Job.skip_permissions, there only when the job has
+///   it (it has presence): true, the agent acts without asking; false, it
+///   asks (its approvals go to its driver); absent (a dispatcher that
+///   predates the field), it asks unless `--skip-permissions` is passed;
 /// - `AGENT_DISPATCHER_URL`: whom it reports Started, Completed and Failed to;
 /// - `AGENT_DRIVER_URL`: the driver it dials, if any;
 /// - `AGENT_RUNNER`: the runner's name;
@@ -20,11 +21,12 @@ import Foundation
 /// - `AGENT_SOURCES_DIR`: where a resumed session's `sources` are cloned;
 /// - `AGENT_TOKEN`: the agent's token (Job.token), if its job had one:
 ///   shown to its driver and dispatcher (AgentToken), and never given to
-///   the harness. Only here: not in AGENT_JOB, and no flag, so it stays off
+///   the harness. Unset or empty, there is none: no call shows a bearer. Only here: not in AGENT_JOB, and no flag, so it stays off
 ///   every command line.
 ///
 /// By hand, the same as flags. `--skip-permissions` makes the agent act
-/// without asking whatever the job says (a runner that always wants that):
+/// without asking whatever the job says: a runner passes it when the job
+/// has no `skipPermissions` (as runners always have) or it is true.
 ///
 ///     agent-wrapper --agent <uuid> --dispatcher <url> [--harness claude|echo] [--model m] [--effort e]
 ///                   [--cwd dir] [--title t] [--prompt text] [--resume id] [--skip-permissions] [--label key=value]…
@@ -42,7 +44,8 @@ public struct WrapperOptions: Sendable, Equatable {
     public var sources: [AgentProtocol_V1_Source] = []
     /// Where the runner keeps sources (AGENT_SOURCES_DIR: /Volumes/Sources).
     public var sourcesDirectory: String?
-    /// The agent's token (AGENT_TOKEN), if any.
+    /// The agent's token (AGENT_TOKEN), if any: nil when AGENT_TOKEN is
+    /// unset or empty.
     public var token: String?
 
     public enum Problem: Error, Equatable, CustomStringConvertible {
@@ -95,9 +98,11 @@ public struct WrapperOptions: Sendable, Equatable {
         harness.isEmpty ? "Claude" : harness.prefix(1).uppercased() + harness.dropFirst()
     }
 
-    /// A JSON boolean, as JSONSerialization gives it; anything else is false.
-    static func flag(_ value: Any?) -> Bool {
-        value as? Bool ?? false
+    /// AGENT_JOB's `skipPermissions`: true or false when the job has it (a
+    /// JSON boolean, as JSONSerialization gives it), nil when it doesn't.
+    /// Anything else is taken as absent.
+    static func skipsPermissions(_ value: Any?) -> Bool? {
+        value as? Bool
     }
 
     private static func given(_ value: String?) -> String? {
@@ -125,8 +130,9 @@ public struct WrapperOptions: Sendable, Equatable {
         for label in object["labels"] as? [String] ?? [] { spec.labels[label] = "" }
         if !string("driverURL").isEmpty { driverURL = string("driverURL") }
         if !string("resumeSessionID").isEmpty { spec.resumeSessionID = string("resumeSessionID") }
-        // Job.skip_permissions; `--skip-permissions`, read after, only adds to it.
-        spec.skipPermissions = Self.flag(object["skipPermissions"])
+        // Job.skip_permissions: true acts, false asks; absent asks too,
+        // unless `--skip-permissions` (read after, an override) says act.
+        spec.skipPermissions = Self.skipsPermissions(object["skipPermissions"]) ?? false
         for source in object["sources"] as? [[String: Any]] ?? [] {
             sources.append(.with {
                 $0.repository = source["repository"] as? String ?? ""
