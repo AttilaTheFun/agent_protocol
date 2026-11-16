@@ -274,6 +274,17 @@ public nonisolated struct AgentProtocol_V1_DriverMessage: Sendable {
     set {message = .acknowledged(newValue)}
   }
 
+  /// A fresh token for the agent, before the one it holds expires: shown
+  /// from then on, on the stream's next connection and every other call
+  /// (Job.token).
+  public var token: String {
+    get {
+      if case .token(let v)? = message {return v}
+      return String()
+    }
+    set {message = .token(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Message: Equatable, Sendable {
@@ -287,6 +298,10 @@ public nonisolated struct AgentProtocol_V1_DriverMessage: Sendable {
     case stop(AgentProtocol_V1_Empty)
     /// The entries received, up to this id.
     case acknowledged(String)
+    /// A fresh token for the agent, before the one it holds expires: shown
+    /// from then on, on the stream's next connection and every other call
+    /// (Job.token).
+    case token(String)
 
   }
 
@@ -655,7 +670,7 @@ nonisolated extension AgentProtocol_V1_Entries: SwiftProtobuf.Message, SwiftProt
 
 nonisolated extension AgentProtocol_V1_DriverMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DriverMessage"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}send\0\u{1}approval\0\u{1}model\0\u{1}interrupt\0\u{1}stop\0\u{1}acknowledged\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}send\0\u{1}approval\0\u{1}model\0\u{1}interrupt\0\u{1}stop\0\u{1}acknowledged\0\u{1}token\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -736,6 +751,14 @@ nonisolated extension AgentProtocol_V1_DriverMessage: SwiftProtobuf.Message, Swi
           self.message = .acknowledged(v)
         }
       }()
+      case 7: try {
+        var v: String?
+        try decoder.decodeSingularStringField(value: &v)
+        if let v = v {
+          if self.message != nil {try decoder.handleConflictingOneOf()}
+          self.message = .token(v)
+        }
+      }()
       default: break
       }
     }
@@ -770,6 +793,10 @@ nonisolated extension AgentProtocol_V1_DriverMessage: SwiftProtobuf.Message, Swi
     case .acknowledged?: try {
       guard case .acknowledged(let v)? = self.message else { preconditionFailure() }
       try visitor.visitSingularStringField(value: v, fieldNumber: 6)
+    }()
+    case .token?: try {
+      guard case .token(let v)? = self.message else { preconditionFailure() }
+      try visitor.visitSingularStringField(value: v, fieldNumber: 7)
     }()
     case nil: break
     }

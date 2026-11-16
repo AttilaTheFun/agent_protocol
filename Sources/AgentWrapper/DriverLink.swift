@@ -7,22 +7,26 @@ import GRPCNIOTransportHTTP2
 /// open, dialled again after a drop, until the agent ends. On each
 /// connection it says who it is, then everything the agent has said and is
 /// doing, then what changes; and it takes what the driver sends (messages,
-/// an interrupt, a stop).
+/// an interrupt, a stop, a fresh token). Each connection shows the agent's
+/// token as it is then (AgentToken).
 public struct DriverLink: Sendable {
     public let host: String
     public let port: Int
     let core: AgentCore
     let hostName: String
+    let token: AgentToken
     let log: @Sendable (String) -> Void
 
     /// Nil for an address that isn't `http://host:port`.
-    public init?(url: String, core: AgentCore, hostName: String, log: @escaping @Sendable (String) -> Void = { _ in }) {
+    public init?(url: String, core: AgentCore, hostName: String, token: AgentToken = AgentToken(),
+                 log: @escaping @Sendable (String) -> Void = { _ in }) {
         guard let components = URLComponents(string: url), components.scheme == "http", let host = components.host, !host.isEmpty
         else { return nil }
         self.host = host
         port = components.port ?? 80
         self.core = core
         self.hostName = hostName
+        self.token = token
         self.log = log
     }
 
@@ -50,9 +54,10 @@ public struct DriverLink: Sendable {
         let core = self.core
         let hello = await helloMessage()
         let log = self.log
+        let token = self.token
         try await withGRPCClient(transport: transport) { client in
             let driver = AgentProtocol_V1_AgentDriver.Client(wrapping: client)
-            try await driver.connect(requestProducer: { writer in
+            try await driver.connect(metadata: token.metadata, requestProducer: { writer in
                 let (rows, state, sessionID, ended, changes) = await core.attach()
                 var first = hello
                 first.sessionID = sessionID
@@ -78,6 +83,7 @@ public struct DriverLink: Sendable {
                     case .stop: await core.stop()
                     case .interrupt: log("driver: an interrupt isn't supported by this harness yet")
                     case .model(let change): log("driver: changing the model to \(change.model) isn't supported yet")
+                    case .token(let fresh): token.replace(with: fresh)
                     case .approval, .acknowledged, .none: break
                     }
                 }

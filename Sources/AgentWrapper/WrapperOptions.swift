@@ -14,7 +14,11 @@ import Foundation
 /// - `AGENT_RUNNER`: the runner's name;
 /// - `AGENT_SESSIONS_DIR`: where the runner keeps sessions; a job with no
 ///   working directory works in `<dir>/Claude/<agent>` there;
-/// - `AGENT_SOURCES_DIR`: where a resumed session's `sources` are cloned.
+/// - `AGENT_SOURCES_DIR`: where a resumed session's `sources` are cloned;
+/// - `AGENT_TOKEN`: the agent's token (Job.token), if its job had one:
+///   shown to its driver and dispatcher (AgentToken), and never given to
+///   the harness. Only here: not in AGENT_JOB, and no flag, so it stays off
+///   every command line.
 ///
 /// By hand, the same as flags:
 ///
@@ -34,6 +38,8 @@ public struct WrapperOptions: Sendable, Equatable {
     public var sources: [AgentProtocol_V1_Source] = []
     /// Where the runner keeps sources (AGENT_SOURCES_DIR: /Volumes/Sources).
     public var sourcesDirectory: String?
+    /// The agent's token (AGENT_TOKEN), if any.
+    public var token: String?
 
     public enum Problem: Error, Equatable, CustomStringConvertible {
         case missing(String)
@@ -52,7 +58,7 @@ public struct WrapperOptions: Sendable, Equatable {
     public static let usage = """
         Usage: agent-wrapper --agent <uuid> --dispatcher <url> [--harness claude|echo] [--model m] [--effort e]
                              [--cwd dir] [--title t] [--prompt text] [--resume id] [--skip-permissions] [--label key=value]…
-        Or, as a runner starts it: AGENT_ID=<uuid>@<url> AGENT_JOB=<json> [AGENT_DISPATCHER_URL] [AGENT_DRIVER_URL] [AGENT_RUNNER].
+        Or, as a runner starts it: AGENT_ID=<uuid>@<url> AGENT_JOB=<json> [AGENT_DISPATCHER_URL] [AGENT_DRIVER_URL] [AGENT_RUNNER] [AGENT_TOKEN].
         """
 
     public init(arguments: [String], environment: [String: String]) throws(Problem) {
@@ -71,6 +77,7 @@ public struct WrapperOptions: Sendable, Equatable {
         runner = Self.given(environment["AGENT_RUNNER"])
         claudeProgram = Self.given(environment["AGENT_WRAPPER_CLAUDE"])
         sourcesDirectory = Self.given(environment["AGENT_SOURCES_DIR"])
+        token = Self.given(environment["AGENT_TOKEN"])
         // A session with no folder named, where the runner keeps sessions
         // (AGENT_SESSIONS_DIR: /Volumes/Sessions): a folder of its own
         // there, <dir>/Claude/<id>, as Visor's SessionFolders gives one.

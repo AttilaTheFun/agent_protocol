@@ -32,11 +32,11 @@ public enum ResumePreparation {
     }
 
     /// The conversation of `agent`, for a harness working in
-    /// `workingDirectory`, from the driver at `driverURL` into `folder`.
-    /// Answers how many files were written (0: the driver had none, or all
-    /// were there already).
+    /// `workingDirectory`, from the driver at `driverURL` into `folder`,
+    /// showing the agent's `token`. Answers how many files were written (0:
+    /// the driver had none, or all were there already).
     public static func fetchConversation(driverURL: String, agent: AgentProtocol_V1_AgentID, workingDirectory: String,
-                                         harness: String, into folder: URL) async throws -> Int {
+                                         harness: String, token: AgentToken = AgentToken(), into folder: URL) async throws -> Int {
         guard let components = URLComponents(string: driverURL), components.scheme == "http",
               let host = components.host, !host.isEmpty else { throw Problem.badDriver(driverURL) }
         let transport = try HTTP2ClientTransport.Posix(target: .dns(host: host, port: components.port ?? 80), transportSecurity: .plaintext)
@@ -47,7 +47,7 @@ public enum ResumePreparation {
         }
         return try await withGRPCClient(transport: transport) { client in
             let driver = AgentProtocol_V1_AgentDriver.Client(wrapping: client)
-            return try await driver.conversation(request) { response in
+            return try await driver.conversation(request, metadata: token.metadata) { response in
                 var writer = ConversationWriter(folder: folder)
                 for try await piece in response.messages { try writer.take(piece) }
                 return writer.written

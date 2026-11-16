@@ -13,6 +13,9 @@ package agent_protocol.v1;
 import "agent_protocol/v1/common.proto";
 
 service AgentDriver {
+  // Each call carries the agent's token, when its job had one (Job.token),
+  // as metadata `authorization: Bearer <token>`: the driver tells its
+  // agents apart by it.
   rpc Connect(stream WrapperMessage) returns (stream DriverMessage);
   // A resumed session's conversation, before its harness starts: its files
   // (the conversation, its subagents, the project's memory), each with
@@ -85,6 +88,10 @@ message DriverMessage {
     Empty stop = 5;
     // The entries received, up to this id.
     string acknowledged = 6;
+    // A fresh token for the agent, before the one it holds expires: shown
+    // from then on, on the stream's next connection and every other call
+    // (Job.token).
+    string token = 7;
   }
 }
 
