@@ -67,23 +67,30 @@ public final class MCPSocketServer: Sendable {
         _ = rmdir(folder)
     }
 
-    /// A connection's lines, to the relay in order, until it closes.
+    /// A connection's lines, to the relay in order, until it closes. A line
+    /// over the relay's limit (MCPRelay.lineLimit) is never held whole: it
+    /// is discarded as it comes and the relay told (MCPRelay.tooLong).
     private static func serve(_ connection: MCPSocketConnection, relay: MCPRelay) {
-        let (lines, continuation) = AsyncStream<String>.makeStream()
+        let (pieces, continuation) = AsyncStream<LineSplitter.Piece>.makeStream()
         Task {
             let name = await relay.connected(connection)
-            for await line in lines where !line.isEmpty { await relay.handle(line, from: name) }
+            for await piece in pieces {
+                switch piece {
+                case .line(let line): if !line.isEmpty { await relay.handle(line, from: name) }
+                case .tooLong(let bytes, let tail): await relay.tooLong(bytes: bytes, tail: tail, from: name)
+                }
+            }
             await relay.disconnected(name)
             connection.close()
         }
         Thread.detachNewThread {
-            let splitter = LineSplitter()
+            let splitter = LineSplitter(limit: relay.lineLimit)
             var buffer = [UInt8](repeating: 0, count: 65536)
             while true {
                 let count = buffer.withUnsafeMutableBytes { read(connection.fd, $0.baseAddress, $0.count) }
                 if count < 0, errno == EINTR { continue }
                 guard count > 0 else { break }
-                for line in splitter.add(Data(buffer[0..<count])) { continuation.yield(line) }
+                for piece in splitter.pieces(Data(buffer[0..<count])) { continuation.yield(piece) }
             }
             continuation.finish()
         }

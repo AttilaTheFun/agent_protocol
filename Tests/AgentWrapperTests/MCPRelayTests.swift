@@ -416,8 +416,17 @@ final class MCPRelayTests: XCTestCase {
         let failed = try await client.lines.error(3)
         XCTAssertTrue((failed["message"] as? String ?? "").contains("no driver"), "\(failed)")
         await relay.handle(#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"approve","arguments":{"tool_name":"Bash","input":{}}}}"#, from: name)
-        let denied = try await client.lines.decision(4)
+        let refused = try await client.lines.error(4)
+        XCTAssertEqual(refused["code"] as? Int, -32602, "an agent that doesn't ask has no approve")
+
+        // One that asks, with no driver: denied at once.
+        let asking = MCPRelay(hasDriver: false, asksPermission: true)
+        let other = FakeMCPClient()
+        let otherName = await asking.connected(other)
+        await asking.handle(#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"approve","arguments":{"tool_name":"Bash","input":{}}}}"#, from: otherName)
+        let denied = try await other.lines.decision(5)
         XCTAssertEqual(denied["behavior"] as? String, "deny")
+        XCTAssertTrue((denied["message"] as? String ?? "").contains("no driver"), "\(denied)")
     }
 
     func testAToolCallTheDriverLeavesUnansweredFailsInTime() async throws {
@@ -439,14 +448,14 @@ final class MCPRelayTests: XCTestCase {
     }
 
     func testAnApprovalNobodyAnswersIsDeniedAndWithdrawn() async throws {
-        let relay = MCPRelay(hasDriver: true, asksPermission: true, timing: .init(heartbeat: .milliseconds(100), unanswered: .milliseconds(300)))
+        let relay = MCPRelay(hasDriver: true, asksPermission: true, timing: .init(heartbeat: .milliseconds(100), approvalDeadline: .milliseconds(300)))
         let client = FakeMCPClient()
         let name = await relay.connected(client)
         let driver = await PlayedDriver(relay)
         await relay.handle(#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"approve","arguments":{"tool_name":"Bash","input":{"command":"ls"}}}}"#, from: name)
         let denied = try await client.lines.decision(1)
         XCTAssertEqual(denied["behavior"] as? String, "deny")
-        XCTAssertTrue((denied["message"] as? String ?? "").contains("Nobody answered"), "\(denied)")
+        XCTAssertTrue((denied["message"] as? String ?? "").contains("The driver didn't answer"), "a driver that never answered: \(denied)")
         for _ in 0..<100 where driver.withdrawn.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
         XCTAssertEqual(driver.withdrawn, driver.approvals.map(\.id), "the driver told to withdraw its prompt")
 
@@ -474,6 +483,106 @@ final class MCPRelayTests: XCTestCase {
         XCTAssertEqual(denied["behavior"] as? String, "deny")
         XCTAssertEqual(denied["message"] as? String, "The user denied this.")
         XCTAssertEqual(driver.approvals.map(\.summary), ["make"])
+        driver.disconnect()
+    }
+
+    /// A driver that answers initialize (so it serves MCP), then nothing.
+    private func initializingDriver(_ relay: MCPRelay) async -> PlayedDriver {
+        await PlayedDriver(relay) { message in
+            guard case .mcp(let request) = message.message, let object = JSONLine.object(request.json),
+                  object["method"] as? String == "initialize", let id = object["id"] else { return nil }
+            return .with { $0.mcp = .with { $0.id = request.id; $0.json = #"{"jsonrpc":"2.0","id":\#(JSONLine.text(id)),"result":{}}"# } }
+        }
+    }
+
+    func testAnApprovalWithProgressIsStillDeniedAtItsDeadline() async throws {
+        let relay = MCPRelay(hasDriver: true, asksPermission: true,
+                             timing: .init(heartbeat: .milliseconds(50), approvalDeadline: .milliseconds(500)))
+        let client = FakeMCPClient()
+        let name = await relay.connected(client)
+        let driver = await initializingDriver(relay)
+        await relay.handle(#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, from: name)
+        _ = try await client.lines.result(1)
+        let serves = await relay.driverServesMCP
+        XCTAssertEqual(serves, true)
+        let started = ContinuousClock.now
+        await relay.handle(#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"approve","arguments":{"tool_name":"Bash","input":{"command":"ls"}},"_meta":{"progressToken":"p2"}}}"#, from: name)
+        let denied = try await client.lines.decision(2)
+        XCTAssertGreaterThanOrEqual(ContinuousClock.now - started, .milliseconds(500), "not before its deadline")
+        XCTAssertEqual(denied["behavior"] as? String, "deny")
+        XCTAssertTrue((denied["message"] as? String ?? "").contains("Nobody answered"), "\(denied)")
+        let beats = client.lines.all.filter { ((JSONLine.object($0)?["params"] as? [String: Any])?["progressToken"] as? String) == "p2" }
+        XCTAssertGreaterThanOrEqual(beats.count, 2, "progress was said while it waited, and didn't stop the deadline")
+        for _ in 0..<100 where driver.withdrawn.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(driver.withdrawn, driver.approvals.map(\.id))
+        // And nothing more after it.
+        let after = client.lines.all.count
+        try await Task.sleep(for: .milliseconds(200))
+        XCTAssertEqual(client.lines.all.count, after, "no progress after the deadline")
+        driver.disconnect()
+    }
+
+    func testAnInitializeThatTimedOutUnsentLeavesTheDriverUnknownAndApprovalsTheirDeadline() async throws {
+        let relay = MCPRelay(hasDriver: true, asksPermission: true,
+                             timing: .init(answer: .milliseconds(100), heartbeat: .milliseconds(50), approvalDeadline: .milliseconds(500)))
+        let client = FakeMCPClient()
+        let name = await relay.connected(client)
+        // No driver connected yet: the initialize waits, then is answered here.
+        await relay.handle(#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#, from: name)
+        let initialized = try await client.lines.result(1)
+        XCTAssertEqual((initialized["serverInfo"] as? [String: Any])?["name"] as? String, "visor")
+        let serves = await relay.driverServesMCP
+        XCTAssertNil(serves, "unknown: no driver was there to leave it unanswered")
+        // A driver that never answers comes; the approval is asked of it, and denied at its deadline.
+        let silent = await PlayedDriver(relay)
+        let started = ContinuousClock.now
+        await relay.handle(#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"approve","arguments":{"tool_name":"Bash","input":{"command":"ls"}},"_meta":{"progressToken":7}}}"#, from: name)
+        let denied = try await client.lines.decision(2)
+        XCTAssertGreaterThanOrEqual(ContinuousClock.now - started, .milliseconds(500))
+        XCTAssertEqual(denied["behavior"] as? String, "deny")
+        XCTAssertTrue((denied["message"] as? String ?? "").contains("The driver didn't answer"), "\(denied)")
+        XCTAssertEqual(silent.approvals.count, 1, "it was asked")
+        for _ in 0..<100 where silent.withdrawn.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+        XCTAssertEqual(silent.withdrawn, silent.approvals.map(\.id))
+        silent.disconnect()
+    }
+
+    func testAnApprovalIsSentOnceAConnectionAndAgainOnANewOne() async throws {
+        let relay = MCPRelay(hasDriver: true, asksPermission: true)
+        let client = FakeMCPClient()
+        let name = await relay.connected(client)
+        let first = await PlayedDriver(relay)
+        let asked = #"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"approve","arguments":{"tool_name":"Bash","input":{"command":"make"}}}}"#
+        await relay.handle(asked, from: name)
+        await relay.handle(asked, from: name)
+        for _ in 0..<20 where first.approvals.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(first.approvals.count, 1, "the same request twice is asked once")
+        // A new connection: asked again, once, by the same id.
+        let second = await PlayedDriver(relay)
+        for _ in 0..<20 where second.approvals.isEmpty { try await Task.sleep(for: .milliseconds(50)) }
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertEqual(second.approvals.map(\.id), first.approvals.map(\.id))
+        await relay.take(AgentProtocol_V1_Approval.with { $0.requestID = first.approvals[0].id; $0.allow = true })
+        let allowed = try await client.lines.decision(1)
+        XCTAssertEqual(allowed["behavior"] as? String, "allow")
+        XCTAssertEqual(client.lines.all.filter { JSONLine.object($0)?["id"] as? Int == 1 }.count, 1, "answered once")
+        first.disconnect()
+        second.disconnect()
+    }
+
+    func testApproveIsRefusedWhenTheJobSkipsPermissions() async throws {
+        let relay = MCPRelay(hasDriver: true, asksPermission: false)
+        let client = FakeMCPClient()
+        let name = await relay.connected(client)
+        let driver = await PlayedDriver(relay)
+        await relay.handle(#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"approve","arguments":{"tool_name":"Bash","input":{"command":"ls"}}}}"#, from: name)
+        let refused = try await client.lines.error(4)
+        XCTAssertEqual(refused["code"] as? Int, -32602)
+        XCTAssertTrue((refused["message"] as? String ?? "").contains("skips permissions"), "\(refused)")
+        try await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(driver.approvals.isEmpty, "nothing asked of the driver")
+        XCTAssertTrue(driver.methods.isEmpty, "nor sent to it as MCP")
         driver.disconnect()
     }
 }
