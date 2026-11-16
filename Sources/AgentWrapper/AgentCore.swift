@@ -75,6 +75,7 @@ public actor AgentCore {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: launch.executable)
         process.arguments = launch.arguments
+        process.environment = HarnessLaunch.environment(from: ProcessInfo.processInfo.environment)
         let folder = spec.workingDirectory
         if !folder.isEmpty {
             do {

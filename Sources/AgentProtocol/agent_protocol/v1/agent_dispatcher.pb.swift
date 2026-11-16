@@ -170,6 +170,17 @@ public nonisolated struct AgentProtocol_V1_Job: @unchecked Sendable {
     set {_uniqueStorage()._sources = newValue}
   }
 
+  /// The agent's own token, minted by the dispatcher for this job
+  /// (docs/retiring-multipass.md, section 4): the runner hands it to the
+  /// wrapper in AGENT_TOKEN, never on a command line, and the wrapper shows
+  /// it on each call it makes for the agent, as gRPC metadata
+  /// `authorization: Bearer <token>`. Empty from a dispatcher that mints
+  /// none.
+  public var token: String {
+    get {_storage._token}
+    set {_uniqueStorage()._token = newValue}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -489,7 +500,7 @@ nonisolated extension AgentProtocol_V1_ClaimResponse: SwiftProtobuf.Message, Swi
 
 nonisolated extension AgentProtocol_V1_Job: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Job"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}agent\0\u{1}title\0\u{1}prompt\0\u{3}source_url\0\u{1}repository\0\u{1}ref\0\u{1}harness\0\u{1}model\0\u{1}effort\0\u{1}labels\0\u{3}claim_expires\0\u{3}working_directory\0\u{3}driver_url\0\u{3}resume_session_id\0\u{1}sources\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}agent\0\u{1}title\0\u{1}prompt\0\u{3}source_url\0\u{1}repository\0\u{1}ref\0\u{1}harness\0\u{1}model\0\u{1}effort\0\u{1}labels\0\u{3}claim_expires\0\u{3}working_directory\0\u{3}driver_url\0\u{3}resume_session_id\0\u{1}sources\0\u{1}token\0")
 
   fileprivate class _StorageClass {
     var _agent: AgentProtocol_V1_AgentID? = nil
@@ -507,6 +518,7 @@ nonisolated extension AgentProtocol_V1_Job: SwiftProtobuf.Message, SwiftProtobuf
     var _driverURL: String = String()
     var _resumeSessionID: String = String()
     var _sources: [AgentProtocol_V1_Source] = []
+    var _token: String = String()
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -532,6 +544,7 @@ nonisolated extension AgentProtocol_V1_Job: SwiftProtobuf.Message, SwiftProtobuf
       _driverURL = source._driverURL
       _resumeSessionID = source._resumeSessionID
       _sources = source._sources
+      _token = source._token
     }
   }
 
@@ -565,6 +578,7 @@ nonisolated extension AgentProtocol_V1_Job: SwiftProtobuf.Message, SwiftProtobuf
         case 13: try { try decoder.decodeSingularStringField(value: &_storage._driverURL) }()
         case 14: try { try decoder.decodeSingularStringField(value: &_storage._resumeSessionID) }()
         case 15: try { try decoder.decodeRepeatedMessageField(value: &_storage._sources) }()
+        case 16: try { try decoder.decodeSingularStringField(value: &_storage._token) }()
         default: break
         }
       }
@@ -622,6 +636,9 @@ nonisolated extension AgentProtocol_V1_Job: SwiftProtobuf.Message, SwiftProtobuf
       if !_storage._sources.isEmpty {
         try visitor.visitRepeatedMessageField(value: _storage._sources, fieldNumber: 15)
       }
+      if !_storage._token.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._token, fieldNumber: 16)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -646,6 +663,7 @@ nonisolated extension AgentProtocol_V1_Job: SwiftProtobuf.Message, SwiftProtobuf
         if _storage._driverURL != rhs_storage._driverURL {return false}
         if _storage._resumeSessionID != rhs_storage._resumeSessionID {return false}
         if _storage._sources != rhs_storage._sources {return false}
+        if _storage._token != rhs_storage._token {return false}
         return true
       }
       if !storagesAreEqual {return false}

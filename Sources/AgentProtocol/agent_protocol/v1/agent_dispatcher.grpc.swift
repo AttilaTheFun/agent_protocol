@@ -124,6 +124,8 @@ extension AgentProtocol_V1_AgentDispatcher {
         /// >
         /// > How a claimed job goes: the dispatcher's own moves follow (Shireworks':
         /// > the issue's labels and comments).
+        /// > A wrapper's report carries its agent's token (Job.token) as metadata
+        /// > `authorization: Bearer <token>`.
         ///
         /// - Parameters:
         ///   - request: A streaming request of `AgentProtocol_V1_JobReport` messages.
@@ -189,6 +191,8 @@ extension AgentProtocol_V1_AgentDispatcher {
         /// >
         /// > How a claimed job goes: the dispatcher's own moves follow (Shireworks':
         /// > the issue's labels and comments).
+        /// > A wrapper's report carries its agent's token (Job.token) as metadata
+        /// > `authorization: Bearer <token>`.
         ///
         /// - Parameters:
         ///   - request: A request containing a single `AgentProtocol_V1_JobReport` message.
@@ -252,6 +256,8 @@ extension AgentProtocol_V1_AgentDispatcher {
         /// >
         /// > How a claimed job goes: the dispatcher's own moves follow (Shireworks':
         /// > the issue's labels and comments).
+        /// > A wrapper's report carries its agent's token (Job.token) as metadata
+        /// > `authorization: Bearer <token>`.
         ///
         /// - Parameters:
         ///   - request: A `AgentProtocol_V1_JobReport` message.
@@ -444,6 +450,8 @@ extension AgentProtocol_V1_AgentDispatcher {
         /// >
         /// > How a claimed job goes: the dispatcher's own moves follow (Shireworks':
         /// > the issue's labels and comments).
+        /// > A wrapper's report carries its agent's token (Job.token) as metadata
+        /// > `authorization: Bearer <token>`.
         ///
         /// - Parameters:
         ///   - request: A request containing a single `AgentProtocol_V1_JobReport` message.
@@ -543,6 +551,8 @@ extension AgentProtocol_V1_AgentDispatcher {
         /// >
         /// > How a claimed job goes: the dispatcher's own moves follow (Shireworks':
         /// > the issue's labels and comments).
+        /// > A wrapper's report carries its agent's token (Job.token) as metadata
+        /// > `authorization: Bearer <token>`.
         ///
         /// - Parameters:
         ///   - request: A request containing a single `AgentProtocol_V1_JobReport` message.
@@ -647,6 +657,8 @@ extension AgentProtocol_V1_AgentDispatcher.ClientProtocol {
     /// >
     /// > How a claimed job goes: the dispatcher's own moves follow (Shireworks':
     /// > the issue's labels and comments).
+    /// > A wrapper's report carries its agent's token (Job.token) as metadata
+    /// > `authorization: Bearer <token>`.
     ///
     /// - Parameters:
     ///   - request: A request containing a single `AgentProtocol_V1_JobReport` message.
@@ -744,6 +756,8 @@ extension AgentProtocol_V1_AgentDispatcher.ClientProtocol {
     /// >
     /// > How a claimed job goes: the dispatcher's own moves follow (Shireworks':
     /// > the issue's labels and comments).
+    /// > A wrapper's report carries its agent's token (Job.token) as metadata
+    /// > `authorization: Bearer <token>`.
     ///
     /// - Parameters:
     ///   - message: request message to send.

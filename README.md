@@ -113,6 +113,16 @@ answers it with a `control_response`, and ends the turn with its
 `error_during_execution` result. The echo harness's turn just ends,
 unanswered. A stop still ends the agent.
 
+**The agent's token** (`Job.token`, minted by the dispatcher;
+docs/retiring-multipass.md, section 4): a runner hands it to the wrapper
+in `AGENT_TOKEN`, beside `AGENT_ID` and `AGENT_JOB`, never in `AGENT_JOB`
+or on a command line. The wrapper shows it on each call it makes for the
+agent, its driver's `Connect` and `Conversation` and its dispatcher's
+`Report`, as gRPC metadata `authorization: Bearer <token>`, and takes a
+fresh one when the driver sends it (`DriverMessage.token`). The harness
+isn't given it. Not yet: Claude's MCP configuration carrying it to the
+server's MCP endpoint, which comes with that endpoint.
+
 Not yet: Codex and OpenRouter, permission prompts relayed to the driver,
 model changes, and the AgentWrapper service. Its harnesses
 will come from Visor's agent code (visor_agent).
