@@ -185,6 +185,27 @@ public nonisolated struct AgentProtocol_V1_WrapperMessage: Sendable {
     set {message = .sessionID(newValue)}
   }
 
+  /// A message from the agent's MCP client to the driver's MCP server
+  /// ("visor"), verbatim: a request, answered by DriverMessage.mcp with
+  /// the same id, or a notification (no id), answered by nothing.
+  public var mcp: AgentProtocol_V1_McpRequest {
+    get {
+      if case .mcp(let v)? = message {return v}
+      return AgentProtocol_V1_McpRequest()
+    }
+    set {message = .mcp(newValue)}
+  }
+
+  /// An ApprovalRequest's id the agent no longer waits on (it gave up on
+  /// the call): its prompt can be withdrawn, and no Approval is needed.
+  public var approvalWithdrawn: String {
+    get {
+      if case .approvalWithdrawn(let v)? = message {return v}
+      return String()
+    }
+    set {message = .approvalWithdrawn(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Message: Equatable, Sendable {
@@ -197,8 +218,65 @@ public nonisolated struct AgentProtocol_V1_WrapperMessage: Sendable {
     case ended(String)
     /// The harness's session id, when it changes (a fork, a resume).
     case sessionID(String)
+    /// A message from the agent's MCP client to the driver's MCP server
+    /// ("visor"), verbatim: a request, answered by DriverMessage.mcp with
+    /// the same id, or a notification (no id), answered by nothing.
+    case mcp(AgentProtocol_V1_McpRequest)
+    /// An ApprovalRequest's id the agent no longer waits on (it gave up on
+    /// the call): its prompt can be withdrawn, and no Approval is needed.
+    case approvalWithdrawn(String)
 
   }
+
+  public init() {}
+}
+
+/// A JSON-RPC message from the agent's MCP client (Claude's), as it sent
+/// it to `agent-wrapper mcp`: the driver runs its MCP server's logic for the
+/// agent's session (the one whose token Connect showed) and answers.
+public nonisolated struct AgentProtocol_V1_McpRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// The wrapper's id for this request, unique for the wrapper's life (not
+  /// the JSON-RPC id, which is in `json` and is the client's own): the
+  /// driver's McpResponse carries it back. Empty for a notification.
+  public var id: String = String()
+
+  /// The JSON-RPC message, verbatim.
+  public var json: String = String()
+
+  /// Which of the agent's MCP connections it came on (the wrapper numbers
+  /// them: "1", "2", … for each time the harness started the server), so
+  /// the driver can keep a connection's state (what it listed, what it
+  /// watches) apart.
+  public var client: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
+/// The driver's MCP server's answer, or a message of its own.
+public nonisolated struct AgentProtocol_V1_McpResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// The McpRequest's id it answers; empty for a message the server sends
+  /// unasked (a notification: tools/list_changed, progress).
+  public var id: String = String()
+
+  /// The JSON-RPC message, verbatim: the response to the request's JSON-RPC
+  /// id, with its result or error.
+  public var json: String = String()
+
+  /// For an unasked message, the connection it is for (McpRequest.client);
+  /// empty for every connection.
+  public var client: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
@@ -285,6 +363,16 @@ public nonisolated struct AgentProtocol_V1_DriverMessage: Sendable {
     set {message = .token(newValue)}
   }
 
+  /// The driver's MCP server's answer to a WrapperMessage.mcp, or a
+  /// message of its own.
+  public var mcp: AgentProtocol_V1_McpResponse {
+    get {
+      if case .mcp(let v)? = message {return v}
+      return AgentProtocol_V1_McpResponse()
+    }
+    set {message = .mcp(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Message: Equatable, Sendable {
@@ -302,6 +390,9 @@ public nonisolated struct AgentProtocol_V1_DriverMessage: Sendable {
     /// from then on, on the stream's next connection and every other call
     /// (Job.token).
     case token(String)
+    /// The driver's MCP server's answer to a WrapperMessage.mcp, or a
+    /// message of its own.
+    case mcp(AgentProtocol_V1_McpResponse)
 
   }
 
@@ -326,6 +417,7 @@ public nonisolated struct AgentProtocol_V1_Send: Sendable {
   public init() {}
 }
 
+/// The answer to an ApprovalRequest.
 public nonisolated struct AgentProtocol_V1_Approval: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -335,7 +427,13 @@ public nonisolated struct AgentProtocol_V1_Approval: Sendable {
 
   public var allow: Bool = false
 
+  /// Why, when it is denied: the agent is told it.
   public var reason: String = String()
+
+  /// When it is allowed, the tool's input to run it with, as JSON (an
+  /// object: a question's answers added to AskUserQuestion's, say); empty
+  /// for the input as asked.
+  public var updatedInputJson: String = String()
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -515,7 +613,7 @@ nonisolated extension AgentProtocol_V1_WrapperHello: SwiftProtobuf.Message, Swif
 
 nonisolated extension AgentProtocol_V1_WrapperMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".WrapperMessage"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}hello\0\u{1}entries\0\u{1}state\0\u{1}approval\0\u{1}ended\0\u{3}session_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}hello\0\u{1}entries\0\u{1}state\0\u{1}approval\0\u{1}ended\0\u{3}session_id\0\u{1}mcp\0\u{3}approval_withdrawn\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -591,6 +689,27 @@ nonisolated extension AgentProtocol_V1_WrapperMessage: SwiftProtobuf.Message, Sw
           self.message = .sessionID(v)
         }
       }()
+      case 7: try {
+        var v: AgentProtocol_V1_McpRequest?
+        var hadOneofValue = false
+        if let current = self.message {
+          hadOneofValue = true
+          if case .mcp(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.message = .mcp(v)
+        }
+      }()
+      case 8: try {
+        var v: String?
+        try decoder.decodeSingularStringField(value: &v)
+        if let v = v {
+          if self.message != nil {try decoder.handleConflictingOneOf()}
+          self.message = .approvalWithdrawn(v)
+        }
+      }()
       default: break
       }
     }
@@ -626,6 +745,14 @@ nonisolated extension AgentProtocol_V1_WrapperMessage: SwiftProtobuf.Message, Sw
       guard case .sessionID(let v)? = self.message else { preconditionFailure() }
       try visitor.visitSingularStringField(value: v, fieldNumber: 6)
     }()
+    case .mcp?: try {
+      guard case .mcp(let v)? = self.message else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 7)
+    }()
+    case .approvalWithdrawn?: try {
+      guard case .approvalWithdrawn(let v)? = self.message else { preconditionFailure() }
+      try visitor.visitSingularStringField(value: v, fieldNumber: 8)
+    }()
     case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -633,6 +760,86 @@ nonisolated extension AgentProtocol_V1_WrapperMessage: SwiftProtobuf.Message, Sw
 
   public static func ==(lhs: AgentProtocol_V1_WrapperMessage, rhs: AgentProtocol_V1_WrapperMessage) -> Bool {
     if lhs.message != rhs.message {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension AgentProtocol_V1_McpRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".McpRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}json\0\u{1}client\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.json) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.client) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.id.isEmpty {
+      try visitor.visitSingularStringField(value: self.id, fieldNumber: 1)
+    }
+    if !self.json.isEmpty {
+      try visitor.visitSingularStringField(value: self.json, fieldNumber: 2)
+    }
+    if !self.client.isEmpty {
+      try visitor.visitSingularStringField(value: self.client, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: AgentProtocol_V1_McpRequest, rhs: AgentProtocol_V1_McpRequest) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs.json != rhs.json {return false}
+    if lhs.client != rhs.client {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension AgentProtocol_V1_McpResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".McpResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}json\0\u{1}client\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.id) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.json) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.client) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.id.isEmpty {
+      try visitor.visitSingularStringField(value: self.id, fieldNumber: 1)
+    }
+    if !self.json.isEmpty {
+      try visitor.visitSingularStringField(value: self.json, fieldNumber: 2)
+    }
+    if !self.client.isEmpty {
+      try visitor.visitSingularStringField(value: self.client, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: AgentProtocol_V1_McpResponse, rhs: AgentProtocol_V1_McpResponse) -> Bool {
+    if lhs.id != rhs.id {return false}
+    if lhs.json != rhs.json {return false}
+    if lhs.client != rhs.client {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -670,7 +877,7 @@ nonisolated extension AgentProtocol_V1_Entries: SwiftProtobuf.Message, SwiftProt
 
 nonisolated extension AgentProtocol_V1_DriverMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DriverMessage"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}send\0\u{1}approval\0\u{1}model\0\u{1}interrupt\0\u{1}stop\0\u{1}acknowledged\0\u{1}token\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}send\0\u{1}approval\0\u{1}model\0\u{1}interrupt\0\u{1}stop\0\u{1}acknowledged\0\u{1}token\0\u{1}mcp\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -759,6 +966,19 @@ nonisolated extension AgentProtocol_V1_DriverMessage: SwiftProtobuf.Message, Swi
           self.message = .token(v)
         }
       }()
+      case 8: try {
+        var v: AgentProtocol_V1_McpResponse?
+        var hadOneofValue = false
+        if let current = self.message {
+          hadOneofValue = true
+          if case .mcp(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.message = .mcp(v)
+        }
+      }()
       default: break
       }
     }
@@ -797,6 +1017,10 @@ nonisolated extension AgentProtocol_V1_DriverMessage: SwiftProtobuf.Message, Swi
     case .token?: try {
       guard case .token(let v)? = self.message else { preconditionFailure() }
       try visitor.visitSingularStringField(value: v, fieldNumber: 7)
+    }()
+    case .mcp?: try {
+      guard case .mcp(let v)? = self.message else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
     }()
     case nil: break
     }
@@ -852,7 +1076,7 @@ nonisolated extension AgentProtocol_V1_Send: SwiftProtobuf.Message, SwiftProtobu
 
 nonisolated extension AgentProtocol_V1_Approval: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".Approval"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}allow\0\u{1}reason\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}allow\0\u{1}reason\0\u{3}updated_input_json\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -863,6 +1087,7 @@ nonisolated extension AgentProtocol_V1_Approval: SwiftProtobuf.Message, SwiftPro
       case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
       case 2: try { try decoder.decodeSingularBoolField(value: &self.allow) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.reason) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.updatedInputJson) }()
       default: break
       }
     }
@@ -878,6 +1103,9 @@ nonisolated extension AgentProtocol_V1_Approval: SwiftProtobuf.Message, SwiftPro
     if !self.reason.isEmpty {
       try visitor.visitSingularStringField(value: self.reason, fieldNumber: 3)
     }
+    if !self.updatedInputJson.isEmpty {
+      try visitor.visitSingularStringField(value: self.updatedInputJson, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -885,6 +1113,7 @@ nonisolated extension AgentProtocol_V1_Approval: SwiftProtobuf.Message, SwiftPro
     if lhs.requestID != rhs.requestID {return false}
     if lhs.allow != rhs.allow {return false}
     if lhs.reason != rhs.reason {return false}
+    if lhs.updatedInputJson != rhs.updatedInputJson {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

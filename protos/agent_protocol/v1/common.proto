@@ -96,4 +96,6 @@ message ApprovalRequest {
   string summary = 3;
   // The tool's input, as JSON.
   string input_json = 4;
+  // The harness's id for the tool call, when it gives one.
+  string tool_use_id = 5;
 }

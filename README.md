@@ -126,7 +126,9 @@ fresh one when the driver sends it (`DriverMessage.token`).
 
 The harness isn't handed it: the wrapper unsets `AGENT_TOKEN` as soon as
 it has read it and leaves it out of the harness's environment, so no
-child inherits it. That isn't secrecy from the harness. On Linux,
+child inherits it, and its MCP server reaches the driver through the
+wrapper (below), so the token is in no MCP configuration or command line
+of Claude's. That isn't secrecy from the harness. On Linux,
 `unsetenv` doesn't change `/proc/<pid>/environ` (the block the process was
 started with), and the harness runs as the wrapper's user, so it can read
 the wrapper's `/proc/<wrapper>/environ`, and its memory, if it looks. Treat
@@ -136,11 +138,110 @@ as it is valid.
 The wrapper's calls are plaintext HTTP/2 (`http://host:port`, no TLS), so
 the bearer token crosses the network as written. That is fine only over
 the container's own link (agent-proxy's dial-in, on the host) or the
-tailnet, which encrypts it; never over any other network. Not yet: Claude's MCP configuration carrying it to the
-server's MCP endpoint, which comes with that endpoint.
+tailnet, which encrypts it; never over any other network.
 
-Not yet: Codex and OpenRouter, permission prompts relayed to the driver,
-model changes, and the AgentWrapper service. Its harnesses
+**The agent's MCP server, "visor", and its approvals.** Claude is given
+the driver's MCP tools (Visor's `send_message`, `read_inbox`,
+`list_sessions`, …), named `mcp__visor__<tool>` as in a session on the
+driver's own computer, and, when the agent asks before acting
+(`skip_permissions` false), its permission prompts go to the driver:
+
+- The wrapper listens on a Unix socket in a private folder of its own
+  (`$TMPDIR/agent-mcp-XXXXXX/mcp.sock`, the folder 0700, the socket 0600,
+  removed when it ends) and starts Claude with
+  `--mcp-config '{"mcpServers":{"visor":{"type":"stdio","command":"<agent-wrapper>","args":["mcp"],"env":{"AGENT_MCP_SOCKET":"<socket>"}}}}'`
+  (and `AGENT_MCP_SOCKET` in Claude's environment too), plus
+  `--permission-prompt-tool mcp__visor__approve` when the agent asks, or
+  `--permission-mode bypassPermissions` when it acts. A resumed session
+  the same. Nothing secret is on a command line or in the configuration.
+- `visor` is the only server the wrapper adds, and it takes none of
+  Claude's own away: no `--strict-mcp-config`, `--bare` or
+  `--setting-sources`, and Claude runs with the wrapper's environment
+  (`HOME`, `CLAUDE_CONFIG_DIR`; less `AGENT_TOKEN`) in the job's working
+  directory. So Claude loads its user and project MCP servers as it would
+  anyway, beside `visor`. In a Shireworks container that is where
+  Shireworks' MCP comes from: the container's own Claude configuration,
+  reaching Shireworks through the container network and agent-proxy
+  (`/mcp/shireworks`). Visor's MCP comes through the wrapper (this
+  server) and nothing else of the driver's computer: Visor answers it
+  with its own tools, not the MCP servers that computer passes on to its
+  native sessions (Logan, 2026-11-16). GitHub is no MCP server at all:
+  `gh` is the plain CLI, over HTTPS through the container network and
+  agent-proxy, which adds the agent account's credentials. Any other MCP
+  server the container's image or a cloned repository's configuration
+  (`~/.claude.json`, `.mcp.json`) names loads too: that is up to whoever
+  set it up. agent-proxy adds credentials for GitHub, Visor and
+  Shireworks alone, so such a server gets none from it.
+- `agent-wrapper mcp` is that server: a pipe between Claude's MCP client
+  (its stdin and stdout) and the wrapper's socket, nothing more.
+- The wrapper relays each JSON-RPC message, verbatim, to the driver as
+  `WrapperMessage.mcp` (`McpRequest`: its own `id` for the request, empty
+  for a notification; the `json`; the `client`, which MCP connection), and
+  writes each `DriverMessage.mcp` (`McpResponse`: the same `id`, the
+  `json`) back to the connection that asked. An `McpResponse` with no id is
+  the server's own message (a `notifications/tools/list_changed`, say), for
+  its `client`, or for every connection when that is empty.
+- `approve` is the wrapper's: it adds it to the driver's `tools/list`
+  answer (when the agent asks before acting and the list lacks it), and a
+  `tools/call` of `approve` (`{tool_name, input, tool_use_id}`) never
+  reaches the driver as MCP: it goes up as `WrapperMessage.approval`
+  (`ApprovalRequest`: `id`, `tool`, a one-line `summary`, `input_json`,
+  `tool_use_id`), and the driver's `DriverMessage.approval` (`Approval`:
+  `request_id`, `allow`, `reason`, `updated_input_json`) answers Claude as
+  its permission prompt expects, `{"behavior":"allow","updatedInput":…}`
+  (the driver's `updated_input_json`, else the input as asked) or
+  `{"behavior":"deny","message":…}` (the `reason`, else "The user denied
+  this."). While it waits it tells Claude so every 20 s (MCP progress),
+  when Claude takes progress. Whatever happens, an approval unanswered 25
+  minutes after it was asked is denied (`MCPRelay.approvalDeadline`):
+  progress or not, and whether or not the driver has ever answered (one
+  that hasn't is named in the reason). An approval the agent gives up on
+  (or that times out) is withdrawn: `WrapperMessage.approval_withdrawn`
+  with its id. An approval still waiting is sent again on each new
+  connection to the driver, once a connection (the same request asked
+  twice is asked once).
+- A job that skips permissions has no `approve`: it isn't listed, and a
+  call to it gets a JSON-RPC error (-32602) without reaching the driver.
+- A message from Claude's MCP client is at most 3 MiB
+  (`MCPRelay.defaultLineLimit`): each goes to the driver whole in one
+  gRPC message on the `Connect` stream, and one over gRPC's 4 MiB limit
+  would fail the whole stream. A longer line is discarded as it comes,
+  never held whole, and answered with a JSON-RPC error (-32600, for the
+  request's id when the line ends with it, else null).
+- A driver that doesn't serve MCP (an older one, which answers nothing):
+  an `initialize` it was sent and left unanswered for 15 s is answered by
+  the wrapper (a server with `approve` alone); from then on tool calls
+  get a JSON-RPC error saying the driver doesn't serve MCP, and approvals
+  are denied, saying the driver can't take approvals. With no driver at
+  all, the same at once. A tool call the driver leaves unanswered fails
+  after 15 minutes, and one under way when the connection drops fails
+  then: nothing waits without end.
+
+**What a driver (Visor) does for this**, on `Connect`:
+- Answer each `WrapperMessage.mcp` that has an `id` with a
+  `DriverMessage.mcp` carrying the same `id`, whose `json` is its MCP
+  server's JSON-RPC response to the request's `json` (`initialize`,
+  `tools/list`, `tools/call`, `ping`, …), run for the agent's session: the
+  one whose token the stream's `Connect` showed (`authorization: Bearer`).
+  Take one with no `id` as a notification (`notifications/initialized`,
+  `notifications/cancelled`) or the client's answer to a request of the
+  server's own. Keep per-connection state by `client`. `approve` need not
+  be listed (the wrapper adds it) and is never called through MCP. Visor
+  lists and serves only its own tools here (`list_sessions`,
+  `send_message`, `read_inbox`, …), never the MCP servers its computer
+  passes on to native sessions: the agent's other servers are its
+  container's.
+- Answer each `WrapperMessage.approval` with a `DriverMessage.approval`
+  of the same `request_id`: `allow`, and when it changes the input (an
+  AskUserQuestion's answers) `updated_input_json`; or not, with a
+  `reason`. De-duplicate by `id`: a waiting approval is sent again on each
+  new connection (after a reconnect), so the same `id` can come more than
+  once, and must be prompted and answered once (Visor does, since
+  visor#438). Drop the prompt on `approval_withdrawn`.
+- A driver that serves MCP is taken to answer approvals too.
+
+Not yet: Codex and OpenRouter, model changes, and the AgentWrapper
+service. Its harnesses
 will come from Visor's agent code (visor_agent).
 
 ## Licence

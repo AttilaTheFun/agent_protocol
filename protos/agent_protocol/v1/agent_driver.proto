@@ -69,7 +69,44 @@ message WrapperMessage {
     string ended = 5;
     // The harness's session id, when it changes (a fork, a resume).
     string session_id = 6;
+    // A message from the agent's MCP client to the driver's MCP server
+    // ("visor"), verbatim: a request, answered by DriverMessage.mcp with
+    // the same id, or a notification (no id), answered by nothing.
+    McpRequest mcp = 7;
+    // An ApprovalRequest's id the agent no longer waits on (it gave up on
+    // the call): its prompt can be withdrawn, and no Approval is needed.
+    string approval_withdrawn = 8;
   }
+}
+
+// A JSON-RPC message from the agent's MCP client (Claude's), as it sent
+// it to `agent-wrapper mcp`: the driver runs its MCP server's logic for the
+// agent's session (the one whose token Connect showed) and answers.
+message McpRequest {
+  // The wrapper's id for this request, unique for the wrapper's life (not
+  // the JSON-RPC id, which is in `json` and is the client's own): the
+  // driver's McpResponse carries it back. Empty for a notification.
+  string id = 1;
+  // The JSON-RPC message, verbatim.
+  string json = 2;
+  // Which of the agent's MCP connections it came on (the wrapper numbers
+  // them: "1", "2", … for each time the harness started the server), so
+  // the driver can keep a connection's state (what it listed, what it
+  // watches) apart.
+  string client = 3;
+}
+
+// The driver's MCP server's answer, or a message of its own.
+message McpResponse {
+  // The McpRequest's id it answers; empty for a message the server sends
+  // unasked (a notification: tools/list_changed, progress).
+  string id = 1;
+  // The JSON-RPC message, verbatim: the response to the request's JSON-RPC
+  // id, with its result or error.
+  string json = 2;
+  // For an unasked message, the connection it is for (McpRequest.client);
+  // empty for every connection.
+  string client = 3;
 }
 
 message Entries {
@@ -92,6 +129,9 @@ message DriverMessage {
     // from then on, on the stream's next connection and every other call
     // (Job.token).
     string token = 7;
+    // The driver's MCP server's answer to a WrapperMessage.mcp, or a
+    // message of its own.
+    McpResponse mcp = 8;
   }
 }
 
@@ -103,10 +143,16 @@ message Send {
   repeated string files = 3;
 }
 
+// The answer to an ApprovalRequest.
 message Approval {
   string request_id = 1;
   bool allow = 2;
+  // Why, when it is denied: the agent is told it.
   string reason = 3;
+  // When it is allowed, the tool's input to run it with, as JSON (an
+  // object: a question's answers added to AskUserQuestion's, say); empty
+  // for the input as asked.
+  string updated_input_json = 4;
 }
 
 message ModelChange {

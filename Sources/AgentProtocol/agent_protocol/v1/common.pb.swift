@@ -240,6 +240,9 @@ public nonisolated struct AgentProtocol_V1_ApprovalRequest: Sendable {
   /// The tool's input, as JSON.
   public var inputJson: String = String()
 
+  /// The harness's id for the tool call, when it gives one.
+  public var toolUseID: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -569,7 +572,7 @@ nonisolated extension AgentProtocol_V1_EphemeralState: SwiftProtobuf.Message, Sw
 
 nonisolated extension AgentProtocol_V1_ApprovalRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ApprovalRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}tool\0\u{1}summary\0\u{3}input_json\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}tool\0\u{1}summary\0\u{3}input_json\0\u{3}tool_use_id\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -581,6 +584,7 @@ nonisolated extension AgentProtocol_V1_ApprovalRequest: SwiftProtobuf.Message, S
       case 2: try { try decoder.decodeSingularStringField(value: &self.tool) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.summary) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self.inputJson) }()
+      case 5: try { try decoder.decodeSingularStringField(value: &self.toolUseID) }()
       default: break
       }
     }
@@ -599,6 +603,9 @@ nonisolated extension AgentProtocol_V1_ApprovalRequest: SwiftProtobuf.Message, S
     if !self.inputJson.isEmpty {
       try visitor.visitSingularStringField(value: self.inputJson, fieldNumber: 4)
     }
+    if !self.toolUseID.isEmpty {
+      try visitor.visitSingularStringField(value: self.toolUseID, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -607,6 +614,7 @@ nonisolated extension AgentProtocol_V1_ApprovalRequest: SwiftProtobuf.Message, S
     if lhs.tool != rhs.tool {return false}
     if lhs.summary != rhs.summary {return false}
     if lhs.inputJson != rhs.inputJson {return false}
+    if lhs.toolUseID != rhs.toolUseID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
