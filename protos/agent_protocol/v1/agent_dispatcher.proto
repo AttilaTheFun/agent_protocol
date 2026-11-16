@@ -75,6 +75,13 @@ message Job {
   // `authorization: Bearer <token>`. Empty from a dispatcher that mints
   // none.
   string token = 16;
+  // Whether the agent acts without asking (true: Claude's
+  // `--permission-mode bypassPermissions`) or asks before acting (false:
+  // each permission prompt goes to its driver as `WrapperMessage.approval`,
+  // through the wrapper's `mcp__visor__approve`). The runner hands it to the
+  // wrapper in AGENT_JOB (`skipPermissions`); a job without it asks. Visor's
+  // dispatcher sets it from the session's own setting.
+  bool skip_permissions = 17;
 }
 
 // A repository a session works in: cloned under its name, at its ref.

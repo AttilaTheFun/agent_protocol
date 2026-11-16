@@ -7,8 +7,11 @@ import Foundation
 /// - `AGENT_ID`: `<uuid>@<dispatcher URL>`;
 /// - `AGENT_JOB`: the job as JSON, `{agent, dispatcherURL, title, prompt,
 ///   sourceURL, repository, ref, harness?, model?, effort?, labels,
-///   workingDirectory?, driverURL?, resumeSessionID?, sources?}`, where
-///   `sources` is `[{repository, ref, name}]`;
+///   workingDirectory?, driverURL?, resumeSessionID?, sources?,
+///   skipPermissions?}`, where `sources` is `[{repository, ref, name}]` and
+///   `skipPermissions` (Job.skip_permissions, a boolean) is whether the
+///   agent acts without asking; without it, it asks (its approvals go to
+///   its driver);
 /// - `AGENT_DISPATCHER_URL`: whom it reports Started, Completed and Failed to;
 /// - `AGENT_DRIVER_URL`: the driver it dials, if any;
 /// - `AGENT_RUNNER`: the runner's name;
@@ -20,7 +23,8 @@ import Foundation
 ///   the harness. Only here: not in AGENT_JOB, and no flag, so it stays off
 ///   every command line.
 ///
-/// By hand, the same as flags:
+/// By hand, the same as flags. `--skip-permissions` makes the agent act
+/// without asking whatever the job says (a runner that always wants that):
 ///
 ///     agent-wrapper --agent <uuid> --dispatcher <url> [--harness claude|echo] [--model m] [--effort e]
 ///                   [--cwd dir] [--title t] [--prompt text] [--resume id] [--skip-permissions] [--label key=value]…
@@ -91,6 +95,11 @@ public struct WrapperOptions: Sendable, Equatable {
         harness.isEmpty ? "Claude" : harness.prefix(1).uppercased() + harness.dropFirst()
     }
 
+    /// A JSON boolean, as JSONSerialization gives it; anything else is false.
+    static func flag(_ value: Any?) -> Bool {
+        value as? Bool ?? false
+    }
+
     private static func given(_ value: String?) -> String? {
         guard let value, !value.isEmpty else { return nil }
         return value
@@ -116,6 +125,8 @@ public struct WrapperOptions: Sendable, Equatable {
         for label in object["labels"] as? [String] ?? [] { spec.labels[label] = "" }
         if !string("driverURL").isEmpty { driverURL = string("driverURL") }
         if !string("resumeSessionID").isEmpty { spec.resumeSessionID = string("resumeSessionID") }
+        // Job.skip_permissions; `--skip-permissions`, read after, only adds to it.
+        spec.skipPermissions = Self.flag(object["skipPermissions"])
         for source in object["sources"] as? [[String: Any]] ?? [] {
             sources.append(.with {
                 $0.repository = source["repository"] as? String ?? ""

@@ -104,6 +104,13 @@ the tests' stand-in does.
 Nothing already there is overwritten. A job with no working directory, on a
 runner that sets `AGENT_SESSIONS_DIR`, works in `<dir>/Claude/<agent>`.
 
+**Whether the agent asks before acting** is the job's: `Job.skip_permissions`,
+which a runner passes on in `AGENT_JOB` as `skipPermissions` (a boolean).
+True, the agent acts (Claude's `--permission-mode bypassPermissions`);
+false or absent, it asks, and its permission prompts go to its driver
+(below). `--skip-permissions` makes any job act, for a runner that always
+wants that.
+
 **The agent's token** (`Job.token`, minted by the dispatcher;
 docs/retiring-multipass.md, section 4): a runner hands it to the wrapper
 in `AGENT_TOKEN`, beside `AGENT_ID` and `AGENT_JOB`, never in `AGENT_JOB`

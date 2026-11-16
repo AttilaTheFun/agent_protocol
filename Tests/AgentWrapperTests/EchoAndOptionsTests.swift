@@ -50,4 +50,44 @@ final class EchoAndOptionsTests: XCTestCase {
         XCTAssertThrowsError(try WrapperOptions(arguments: [], environment: ["AGENT_ID": "no-at-sign"]))
         XCTAssertThrowsError(try WrapperOptions(arguments: ["--agent", "u"], environment: [:]), "no dispatcher")
     }
+
+    /// Job.skip_permissions, as AGENT_JOB's `skipPermissions`: a job that
+    /// says so acts (`--permission-mode bypassPermissions`); one that doesn't,
+    /// or says false, asks through the driver (`--permission-prompt-tool
+    /// mcp__visor__approve`); `--skip-permissions` makes any job act.
+    func testAJobSaysWhetherItsAgentAsksBeforeActing() throws {
+        func options(_ job: String, _ arguments: [String] = []) throws -> WrapperOptions {
+            try WrapperOptions(arguments: arguments, environment: ["AGENT_ID": "u1@http://d", "AGENT_JOB": job])
+        }
+        let skipping = try options(#"{"agent":"u1","harness":"claude","skipPermissions":true}"#)
+        let asking = try options(#"{"agent":"u1","harness":"claude","skipPermissions":false}"#)
+        let silent = try options(#"{"agent":"u1","harness":"claude"}"#)
+        let overridden = try options(#"{"agent":"u1","harness":"claude","skipPermissions":false}"#, ["--skip-permissions"])
+        let odd = try options(#"{"agent":"u1","harness":"claude","skipPermissions":"yes"}"#)
+        XCTAssertTrue(skipping.spec.skipPermissions)
+        XCTAssertFalse(asking.spec.skipPermissions)
+        XCTAssertFalse(silent.spec.skipPermissions, "a job without the field asks")
+        XCTAssertTrue(overridden.spec.skipPermissions, "--skip-permissions stays an override")
+        XCTAssertFalse(odd.spec.skipPermissions, "only a JSON boolean")
+
+        let mcp = HarnessLaunch.MCP(command: "/w", socket: "/tmp/s")
+        func launch(_ options: WrapperOptions) throws -> [String] {
+            try HarnessLaunch.for(options.spec, claudeProgram: "/bin/claude", mcp: mcp).arguments
+        }
+        for acting in [skipping, overridden] {
+            let arguments = try launch(acting)
+            XCTAssertEqual(arguments.suffix(2), ["--permission-mode", "bypassPermissions"])
+            XCTAssertFalse(arguments.contains("--permission-prompt-tool"))
+        }
+        for asker in [asking, silent] {
+            let arguments = try launch(asker)
+            XCTAssertEqual(arguments.suffix(2), ["--permission-prompt-tool", "mcp__visor__approve"])
+            XCTAssertFalse(arguments.contains("--permission-mode"))
+        }
+
+        let job = AgentProtocol_V1_Job.with { $0.skipPermissions = true }
+        XCTAssertTrue(try AgentProtocol_V1_Job(serializedBytes: try job.serializedBytes() as [UInt8]).skipPermissions)
+        XCTAssertEqual(try job.jsonString(), #"{"skipPermissions":true}"#, "the same name as AGENT_JOB's key")
+        XCTAssertFalse(try AgentProtocol_V1_Job(jsonString: #"{"title":"old"}"#).skipPermissions, "a dispatcher that says nothing")
+    }
 }
