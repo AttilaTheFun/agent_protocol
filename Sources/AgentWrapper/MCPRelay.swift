@@ -23,8 +23,25 @@ public protocol MCPClient: Sendable {
 /// an `initialize` it was sent and left unanswered (`Timing.answer`) is
 /// answered here, with `approve` alone, and from then on its tool calls get
 /// a JSON-RPC error and its approvals are denied, saying why. With no
-/// driver at all the same, at once.
+/// driver at all the same, at once. Whatever the driver does, every
+/// approval is answered by its deadline (`Timing.approvalDeadline`): an
+/// approval never waits without end.
 public actor MCPRelay {
+    /// How long an approval may wait for the driver's answer, all told,
+    /// before it is denied: whether or not Claude takes progress, and
+    /// whether or not the driver is known to serve MCP.
+    public static let approvalDeadline: Duration = .seconds(25 * 60)
+
+    /// The longest message Claude's MCP client may send, in bytes: 3 MiB.
+    /// Each goes to the driver whole, in one WrapperMessage on the Connect
+    /// stream, and gRPC's default limit on a message is 4 MiB: a bigger one
+    /// fails the whole stream (the agent's entries and approvals too), not
+    /// the one call. 3 MiB is well under that, leaving room for the
+    /// WrapperMessage's other fields and its framing, and bounds what the
+    /// wrapper holds of a line. A longer line is discarded as it comes,
+    /// never held whole, and answered with a JSON-RPC error.
+    public static let defaultLineLimit = 3 * 1024 * 1024
+
     public struct Timing: Sendable {
         /// How long the driver has to answer a request that isn't a tool
         /// call (initialize, tools/list), or any request before it has
@@ -35,16 +52,16 @@ public actor MCPRelay {
         /// How often an approval waiting on the person is said to be under
         /// way, when Claude takes progress.
         public var heartbeat: Duration
-        /// How long an approval waits when Claude takes no progress, before
-        /// it is denied as unanswered.
-        public var unanswered: Duration
+        /// How long an approval waits, all told, before it is denied as
+        /// unanswered: progress or not (MCPRelay.approvalDeadline).
+        public var approvalDeadline: Duration
 
         public init(answer: Duration = .seconds(15), call: Duration = .seconds(15 * 60), heartbeat: Duration = .seconds(20),
-                    unanswered: Duration = .seconds(25 * 60)) {
+                    approvalDeadline: Duration = MCPRelay.approvalDeadline) {
             self.answer = answer
             self.call = call
             self.heartbeat = heartbeat
-            self.unanswered = unanswered
+            self.approvalDeadline = approvalDeadline
         }
     }
 
@@ -53,11 +70,15 @@ public actor MCPRelay {
     /// Whether the agent asks before acting (its spec's skip_permissions
     /// false): `approve` is offered.
     public let asksPermission: Bool
+    /// The longest line taken from an MCP connection (defaultLineLimit).
+    public let lineLimit: Int
     private let timing: Timing
     private let log: @Sendable (String) -> Void
 
     /// Whether the driver serves MCP: nil until it answers (true), or
-    /// leaves an initialize it was sent unanswered (false).
+    /// leaves an initialize it was sent unanswered (false). Still nil when
+    /// an initialize timed out before any driver was connected to take it:
+    /// unknown, so approvals are sent and wait, to their deadline.
     public private(set) var driverServesMCP: Bool?
 
     private var clients: [String: any MCPClient] = [:]
@@ -99,9 +120,11 @@ public actor MCPRelay {
 
     private var asking: [String: Asking] = [:]
 
-    public init(hasDriver: Bool, asksPermission: Bool, timing: Timing = Timing(), log: @escaping @Sendable (String) -> Void = { _ in }) {
+    public init(hasDriver: Bool, asksPermission: Bool, timing: Timing = Timing(), lineLimit: Int = MCPRelay.defaultLineLimit,
+                log: @escaping @Sendable (String) -> Void = { _ in }) {
         self.hasDriver = hasDriver
         self.asksPermission = asksPermission
+        self.lineLimit = lineLimit
         self.timing = timing
         self.log = log
     }
@@ -153,10 +176,36 @@ public actor MCPRelay {
             return
         }
         if method == "tools/call", params["name"] as? String == "approve" {
+            guard asksPermission else {
+                // Not offered (tools/list lacks it): nothing should ask.
+                let why = "Unknown tool: approve. This agent's job skips permissions (skip_permissions), so nothing asks for them."
+                clients[name]?.send(#"{"jsonrpc":"2.0","id":\#(rpcID),"error":{"code":-32602,"message":\#(JSONText.string(why))}}"#)
+                return
+            }
             approve(rpcID: rpcID, params: params, client: name)
             return
         }
         forward(line, rpcID: rpcID, method: method, params: params, client: name)
+    }
+
+    /// A line from the connection `name` over `lineLimit`, discarded: its
+    /// size, and its last bytes. Answered with a JSON-RPC error (-32600,
+    /// Invalid Request), for the request's id when the line ends with it
+    /// (`…,"id":7}`, as Claude's MCP client writes a request), else for
+    /// none (null). Nothing goes to the driver.
+    public func tooLong(bytes: Int, tail: String, from name: String) {
+        let rpcID = Self.trailingID(tail) ?? "null"
+        log("mcp: a message of \(bytes) bytes from connection \(name) is over \(lineLimit), so it was dropped")
+        let why = "This message is \(bytes) bytes, over the \(lineLimit) bytes the agent's MCP server takes (the driver's link carries 4 MiB at most), so it was dropped. Send less at once."
+        clients[name]?.send(#"{"jsonrpc":"2.0","id":\#(rpcID),"error":{"code":-32600,"message":\#(JSONText.string(why))}}"#)
+    }
+
+    /// The id a JSON-RPC message ends with, as JSON: a number or a string
+    /// as the last member of the outermost object (`"id":7}` with nothing
+    /// but space after it). A nested object's id would end in `}}`.
+    static func trailingID(_ tail: String) -> String? {
+        guard let match = tail.firstMatch(of: /"id"\s*:\s*(-?[0-9]+|"(?:[^"\\]|\\.)*")\s*\}\s*$/) else { return nil }
+        return String(match.1)
     }
 
     /// A notification (or the client's answer): to the driver, when it is
@@ -243,6 +292,12 @@ public actor MCPRelay {
         guard driverServesMCP != false else {
             return answer(client: client, rpcID: rpcID, decision: Self.deny(Self.cantApprove))
         }
+        // The same request again (its connection and JSON-RPC id) while it
+        // waits: it is asked once.
+        guard !asking.values.contains(where: { $0.client == client && $0.rpcID == rpcID }) else {
+            log("mcp: approval \(rpcID) from connection \(client) is asked already")
+            return
+        }
         order += 1
         let id = UUID().uuidString.lowercased()
         var entry = Asking(order: order, client: client, rpcID: rpcID, inputJSON: inputJSON, request: .with {
@@ -252,13 +307,15 @@ public actor MCPRelay {
             $0.inputJson = inputJSON
             $0.toolUseID = arguments["tool_use_id"] as? String ?? ""
         })
-        if let link {
-            link.continuation.yield(.with { $0.approval = entry.request })
-            entry.sentOn = link.number
-        }
         let timing = self.timing
+        // Denied at its deadline, whatever else happens.
+        entry.tasks.append(Task { [weak self] in
+            try? await Task.sleep(for: timing.approvalDeadline)
+            if !Task.isCancelled { await self?.deny(id, unsupported: false) }
+        })
         if let token = ((params["_meta"] as? [String: Any])?["progressToken"]).flatMap({ $0 is NSNull ? nil : JSONText.encode($0) }) {
-            // Still waiting, said to Claude now and then, so it waits on.
+            // Still waiting, said to Claude now and then, so it waits on
+            // (until the deadline, which cancels this).
             entry.tasks.append(Task { [weak self] in
                 var beats = 0
                 while true {
@@ -268,13 +325,18 @@ public actor MCPRelay {
                     await self?.progress(client: client, token: token, beats: beats)
                 }
             })
-        } else {
-            entry.tasks.append(Task { [weak self] in
-                try? await Task.sleep(for: timing.unanswered)
-                if !Task.isCancelled { await self?.deny(id, unsupported: false) }
-            })
         }
         asking[id] = entry
+        sendApproval(id)
+    }
+
+    /// The approval `id` sent on the driver's connection, unless it went on
+    /// this one already: once a connection. A new connection asks it again
+    /// (driverConnected), and the driver takes an id once.
+    private func sendApproval(_ id: String) {
+        guard let link, let entry = asking[id], entry.sentOn != link.number else { return }
+        link.continuation.yield(.with { $0.approval = entry.request })
+        asking[id]?.sentOn = link.number
     }
 
     private func progress(client: String, token: String, beats: Int) {
@@ -299,8 +361,16 @@ public actor MCPRelay {
         guard let entry = asking.removeValue(forKey: id) else { return }
         for task in entry.tasks { task.cancel() }
         if !unsupported, entry.sentOn != nil, let link { link.continuation.yield(.with { $0.approvalWithdrawn = id }) }
-        let message = unsupported ? Self.cantApprove
-            : "Nobody answered this permission request in \(Self.words(timing.unanswered)): go on without it, or ask again later."
+        let waited = Self.words(timing.approvalDeadline)
+        let message = if unsupported {
+            Self.cantApprove
+        } else if driverServesMCP == true {
+            "Nobody answered this permission request in \(waited): go on without it, or ask again later."
+        } else {
+            // Unknown: the driver has never answered (an initialize timed
+            // out before it was connected, or nothing was asked yet).
+            "The driver didn't answer this permission request in \(waited), and hasn't answered this agent's MCP server at all, so the call is denied: go on without it, or ask again later."
+        }
         answer(client: entry.client, rpcID: entry.rpcID, decision: Self.deny(message))
     }
 
@@ -360,10 +430,7 @@ public actor MCPRelay {
             continuation.yield(.with { $0.mcp = entry.request })
             forwarded[id]?.sentOn = number
         }
-        for (id, entry) in asking.sorted(by: { $0.value.order < $1.value.order }) {
-            continuation.yield(.with { $0.approval = entry.request })
-            asking[id]?.sentOn = number
-        }
+        for (id, _) in asking.sorted(by: { $0.value.order < $1.value.order }) { sendApproval(id) }
         return stream
     }
 

@@ -162,11 +162,22 @@ driver's own computer, and, when the agent asks before acting
   (the driver's `updated_input_json`, else the input as asked) or
   `{"behavior":"deny","message":…}` (the `reason`, else "The user denied
   this."). While it waits it tells Claude so every 20 s (MCP progress),
-  when Claude takes progress; when it doesn't, it is denied after 25
-  minutes unanswered. An approval the agent gives up on (or that times
-  out) is withdrawn: `WrapperMessage.approval_withdrawn` with its id. An
-  approval still waiting is sent again on each new connection to the
-  driver.
+  when Claude takes progress. Whatever happens, an approval unanswered 25
+  minutes after it was asked is denied (`MCPRelay.approvalDeadline`):
+  progress or not, and whether or not the driver has ever answered (one
+  that hasn't is named in the reason). An approval the agent gives up on
+  (or that times out) is withdrawn: `WrapperMessage.approval_withdrawn`
+  with its id. An approval still waiting is sent again on each new
+  connection to the driver, once a connection (the same request asked
+  twice is asked once).
+- A job that skips permissions has no `approve`: it isn't listed, and a
+  call to it gets a JSON-RPC error (-32602) without reaching the driver.
+- A message from Claude's MCP client is at most 3 MiB
+  (`MCPRelay.defaultLineLimit`): each goes to the driver whole in one
+  gRPC message on the `Connect` stream, and one over gRPC's 4 MiB limit
+  would fail the whole stream. A longer line is discarded as it comes,
+  never held whole, and answered with a JSON-RPC error (-32600, for the
+  request's id when the line ends with it, else null).
 - A driver that doesn't serve MCP (an older one, which answers nothing):
   an `initialize` it was sent and left unanswered for 15 s is answered by
   the wrapper (a server with `approve` alone); from then on tool calls
@@ -193,8 +204,10 @@ driver's own computer, and, when the agent asks before acting
 - Answer each `WrapperMessage.approval` with a `DriverMessage.approval`
   of the same `request_id`: `allow`, and when it changes the input (an
   AskUserQuestion's answers) `updated_input_json`; or not, with a
-  `reason`. Take an id once: a waiting approval comes again after a
-  reconnect. Drop the prompt on `approval_withdrawn`.
+  `reason`. De-duplicate by `id`: a waiting approval is sent again on each
+  new connection (after a reconnect), so the same `id` can come more than
+  once, and must be prompted and answered once (Visor does, since
+  visor#438). Drop the prompt on `approval_withdrawn`.
 - A driver that serves MCP is taken to answer approvals too.
 
 Not yet: Codex and OpenRouter, interrupts and model changes, and the
