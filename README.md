@@ -111,8 +111,9 @@ or on a command line. The wrapper shows it on each call it makes for the
 agent, its driver's `Connect` and `Conversation` and its dispatcher's
 `Report`, as gRPC metadata `authorization: Bearer <token>`, and takes a
 fresh one when the driver sends it (`DriverMessage.token`). The harness
-isn't given it: its MCP server reaches the driver through the wrapper
-(below), so the token never leaves the wrapper.
+isn't handed it: its MCP server reaches the driver through the wrapper
+(below), so the token is in no MCP configuration or command line of
+Claude's.
 
 **The agent's MCP server, "visor", and its approvals.** Claude is given
 the driver's MCP tools (Visor's `send_message`, `read_inbox`,
@@ -141,7 +142,11 @@ driver's own computer, and, when the agent asks before acting
   with its own tools, not the MCP servers that computer passes on to its
   native sessions (Logan, 2026-11-16). GitHub is no MCP server at all:
   `gh` is the plain CLI, over HTTPS through the container network and
-  agent-proxy, which adds the agent account's credentials.
+  agent-proxy, which adds the agent account's credentials. Any other MCP
+  server the container's image or a cloned repository's configuration
+  (`~/.claude.json`, `.mcp.json`) names loads too: that is up to whoever
+  set it up. agent-proxy adds credentials for GitHub, Visor and
+  Shireworks alone, so such a server gets none from it.
 - `agent-wrapper mcp` is that server: a pipe between Claude's MCP client
   (its stdin and stdout) and the wrapper's socket, nothing more.
 - The wrapper relays each JSON-RPC message, verbatim, to the driver as

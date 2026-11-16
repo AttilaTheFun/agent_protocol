@@ -416,8 +416,17 @@ final class MCPRelayTests: XCTestCase {
         let failed = try await client.lines.error(3)
         XCTAssertTrue((failed["message"] as? String ?? "").contains("no driver"), "\(failed)")
         await relay.handle(#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"approve","arguments":{"tool_name":"Bash","input":{}}}}"#, from: name)
-        let denied = try await client.lines.decision(4)
+        let refused = try await client.lines.error(4)
+        XCTAssertEqual(refused["code"] as? Int, -32602, "an agent that doesn't ask has no approve")
+
+        // One that asks, with no driver: denied at once.
+        let asking = MCPRelay(hasDriver: false, asksPermission: true)
+        let other = FakeMCPClient()
+        let otherName = await asking.connected(other)
+        await asking.handle(#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"approve","arguments":{"tool_name":"Bash","input":{}}}}"#, from: otherName)
+        let denied = try await other.lines.decision(5)
         XCTAssertEqual(denied["behavior"] as? String, "deny")
+        XCTAssertTrue((denied["message"] as? String ?? "").contains("no driver"), "\(denied)")
     }
 
     func testAToolCallTheDriverLeavesUnansweredFailsInTime() async throws {
