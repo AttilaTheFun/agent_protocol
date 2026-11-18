@@ -191,6 +191,12 @@ final class MCPDriver: AgentProtocol_V1_AgentDriver.SimpleServiceProtocol {
     func conversation(request: AgentProtocol_V1_ConversationRequest, response: RPCWriter<AgentProtocol_V1_ConversationFile>,
                       context: ServerContext) async throws {}
 
+    /// No hand-back here: as a driver that predates ReturnConversation.
+    func returnConversation(request: RPCAsyncSequence<AgentProtocol_V1_ReturnedConversation, any Error>,
+                            context: ServerContext) async throws -> AgentProtocol_V1_ReturnedConversationAck {
+        throw RPCError(code: .unimplemented, message: "no ReturnConversation")
+    }
+
     var mcpMethods: [String] {
         heard.withLock { $0.compactMap { message in
             guard case .mcp(let request) = message.message else { return nil }

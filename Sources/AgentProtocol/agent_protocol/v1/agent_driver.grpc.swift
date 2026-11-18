@@ -55,10 +55,24 @@ public enum AgentProtocol_V1_AgentDriver: Sendable {
                 type: .serverStreaming
             )
         }
+        /// Namespace for "ReturnConversation" metadata.
+        public enum ReturnConversation: Sendable {
+            /// Request type for "ReturnConversation".
+            public typealias Input = AgentProtocol_V1_ReturnedConversation
+            /// Response type for "ReturnConversation".
+            public typealias Output = AgentProtocol_V1_ReturnedConversationAck
+            /// Descriptor for "ReturnConversation".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agent_protocol.v1.AgentDriver"),
+                method: "ReturnConversation",
+                type: .clientStreaming
+            )
+        }
         /// Descriptors for all methods in the "agent_protocol.v1.AgentDriver" service.
         public static let descriptors: [GRPCCore.MethodDescriptor] = [
             Connect.descriptor,
-            Conversation.descriptor
+            Conversation.descriptor,
+            ReturnConversation.descriptor
         ]
     }
 }
@@ -125,6 +139,29 @@ extension AgentProtocol_V1_AgentDriver {
             request: GRPCCore.StreamingServerRequest<AgentProtocol_V1_ConversationRequest>,
             context: GRPCCore.ServerContext
         ) async throws -> GRPCCore.StreamingServerResponse<AgentProtocol_V1_ConversationFile>
+
+        /// Handle the "ReturnConversation" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > A session handed back (DriverMessage.hand_back): once its harness has
+        /// > ended, the wrapper sends its conversation up, the way Conversation
+        /// > sent it down, so the turns it took here go back with it. The header
+        /// > first, then its files, a file in pieces of at most 1 MiB with `last` on
+        /// > each file's last piece; the driver answers once it has them all. Only
+        /// > a wrapper that says protocol 2 or later in its hello calls it.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request of `AgentProtocol_V1_ReturnedConversation` messages.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A streaming response of `AgentProtocol_V1_ReturnedConversationAck` messages.
+        func returnConversation(
+            request: GRPCCore.StreamingServerRequest<AgentProtocol_V1_ReturnedConversation>,
+            context: GRPCCore.ServerContext
+        ) async throws -> GRPCCore.StreamingServerResponse<AgentProtocol_V1_ReturnedConversationAck>
     }
 
     /// Service protocol for the "agent_protocol.v1.AgentDriver" service.
@@ -175,6 +212,29 @@ extension AgentProtocol_V1_AgentDriver {
             request: GRPCCore.ServerRequest<AgentProtocol_V1_ConversationRequest>,
             context: GRPCCore.ServerContext
         ) async throws -> GRPCCore.StreamingServerResponse<AgentProtocol_V1_ConversationFile>
+
+        /// Handle the "ReturnConversation" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > A session handed back (DriverMessage.hand_back): once its harness has
+        /// > ended, the wrapper sends its conversation up, the way Conversation
+        /// > sent it down, so the turns it took here go back with it. The header
+        /// > first, then its files, a file in pieces of at most 1 MiB with `last` on
+        /// > each file's last piece; the driver answers once it has them all. Only
+        /// > a wrapper that says protocol 2 or later in its hello calls it.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request of `AgentProtocol_V1_ReturnedConversation` messages.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A response containing a single `AgentProtocol_V1_ReturnedConversationAck` message.
+        func returnConversation(
+            request: GRPCCore.StreamingServerRequest<AgentProtocol_V1_ReturnedConversation>,
+            context: GRPCCore.ServerContext
+        ) async throws -> GRPCCore.ServerResponse<AgentProtocol_V1_ReturnedConversationAck>
     }
 
     /// Simple service protocol for the "agent_protocol.v1.AgentDriver" service.
@@ -225,6 +285,29 @@ extension AgentProtocol_V1_AgentDriver {
             response: GRPCCore.RPCWriter<AgentProtocol_V1_ConversationFile>,
             context: GRPCCore.ServerContext
         ) async throws
+
+        /// Handle the "ReturnConversation" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > A session handed back (DriverMessage.hand_back): once its harness has
+        /// > ended, the wrapper sends its conversation up, the way Conversation
+        /// > sent it down, so the turns it took here go back with it. The header
+        /// > first, then its files, a file in pieces of at most 1 MiB with `last` on
+        /// > each file's last piece; the driver answers once it has them all. Only
+        /// > a wrapper that says protocol 2 or later in its hello calls it.
+        ///
+        /// - Parameters:
+        ///   - request: A stream of `AgentProtocol_V1_ReturnedConversation` messages.
+        ///   - context: Context providing information about the RPC.
+        /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+        ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+        ///     to an internal error.
+        /// - Returns: A `AgentProtocol_V1_ReturnedConversationAck` to respond with.
+        func returnConversation(
+            request: GRPCCore.RPCAsyncSequence<AgentProtocol_V1_ReturnedConversation, any Swift.Error>,
+            context: GRPCCore.ServerContext
+        ) async throws -> AgentProtocol_V1_ReturnedConversationAck
     }
 }
 
@@ -254,6 +337,17 @@ extension AgentProtocol_V1_AgentDriver.StreamingServiceProtocol {
                 )
             }
         )
+        router.registerHandler(
+            forMethod: AgentProtocol_V1_AgentDriver.Method.ReturnConversation.descriptor,
+            deserializer: GRPCProtobuf.ProtobufDeserializer<AgentProtocol_V1_ReturnedConversation>(),
+            serializer: GRPCProtobuf.ProtobufSerializer<AgentProtocol_V1_ReturnedConversationAck>(),
+            handler: { request, context in
+                try await self.returnConversation(
+                    request: request,
+                    context: context
+                )
+            }
+        )
     }
 }
 
@@ -269,6 +363,17 @@ extension AgentProtocol_V1_AgentDriver.ServiceProtocol {
             context: context
         )
         return response
+    }
+
+    public func returnConversation(
+        request: GRPCCore.StreamingServerRequest<AgentProtocol_V1_ReturnedConversation>,
+        context: GRPCCore.ServerContext
+    ) async throws -> GRPCCore.StreamingServerResponse<AgentProtocol_V1_ReturnedConversationAck> {
+        let response = try await self.returnConversation(
+            request: request,
+            context: context
+        )
+        return GRPCCore.StreamingServerResponse(single: response)
     }
 }
 
@@ -306,6 +411,19 @@ extension AgentProtocol_V1_AgentDriver.SimpleServiceProtocol {
                 )
                 return [:]
             }
+        )
+    }
+
+    public func returnConversation(
+        request: GRPCCore.StreamingServerRequest<AgentProtocol_V1_ReturnedConversation>,
+        context: GRPCCore.ServerContext
+    ) async throws -> GRPCCore.ServerResponse<AgentProtocol_V1_ReturnedConversationAck> {
+        return GRPCCore.ServerResponse<AgentProtocol_V1_ReturnedConversationAck>(
+            message: try await self.returnConversation(
+                request: request.messages,
+                context: context
+            ),
+            metadata: [:]
         )
     }
 }
@@ -368,6 +486,34 @@ extension AgentProtocol_V1_AgentDriver {
             deserializer: some GRPCCore.MessageDeserializer<AgentProtocol_V1_ConversationFile>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.StreamingClientResponse<AgentProtocol_V1_ConversationFile>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "ReturnConversation" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > A session handed back (DriverMessage.hand_back): once its harness has
+        /// > ended, the wrapper sends its conversation up, the way Conversation
+        /// > sent it down, so the turns it took here go back with it. The header
+        /// > first, then its files, a file in pieces of at most 1 MiB with `last` on
+        /// > each file's last piece; the driver answers once it has them all. Only
+        /// > a wrapper that says protocol 2 or later in its hello calls it.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request producing `AgentProtocol_V1_ReturnedConversation` messages.
+        ///   - serializer: A serializer for `AgentProtocol_V1_ReturnedConversation` messages.
+        ///   - deserializer: A deserializer for `AgentProtocol_V1_ReturnedConversationAck` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response and returns its result to
+        ///       the caller. Returning from the closure will cancel the RPC if it hasn't
+        ///       already finished.
+        /// - Returns: The result of `handleResponse`.
+        func returnConversation<Result>(
+            request: GRPCCore.StreamingClientRequest<AgentProtocol_V1_ReturnedConversation>,
+            serializer: some GRPCCore.MessageSerializer<AgentProtocol_V1_ReturnedConversation>,
+            deserializer: some GRPCCore.MessageDeserializer<AgentProtocol_V1_ReturnedConversationAck>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<AgentProtocol_V1_ReturnedConversationAck>) async throws -> Result
         ) async throws -> Result where Result: Sendable
     }
 
@@ -455,6 +601,45 @@ extension AgentProtocol_V1_AgentDriver {
                 onResponse: handleResponse
             )
         }
+
+        /// Call the "ReturnConversation" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > A session handed back (DriverMessage.hand_back): once its harness has
+        /// > ended, the wrapper sends its conversation up, the way Conversation
+        /// > sent it down, so the turns it took here go back with it. The header
+        /// > first, then its files, a file in pieces of at most 1 MiB with `last` on
+        /// > each file's last piece; the driver answers once it has them all. Only
+        /// > a wrapper that says protocol 2 or later in its hello calls it.
+        ///
+        /// - Parameters:
+        ///   - request: A streaming request producing `AgentProtocol_V1_ReturnedConversation` messages.
+        ///   - serializer: A serializer for `AgentProtocol_V1_ReturnedConversation` messages.
+        ///   - deserializer: A deserializer for `AgentProtocol_V1_ReturnedConversationAck` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response and returns its result to
+        ///       the caller. Returning from the closure will cancel the RPC if it hasn't
+        ///       already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func returnConversation<Result>(
+            request: GRPCCore.StreamingClientRequest<AgentProtocol_V1_ReturnedConversation>,
+            serializer: some GRPCCore.MessageSerializer<AgentProtocol_V1_ReturnedConversation>,
+            deserializer: some GRPCCore.MessageDeserializer<AgentProtocol_V1_ReturnedConversationAck>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<AgentProtocol_V1_ReturnedConversationAck>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.clientStreaming(
+                request: request,
+                descriptor: AgentProtocol_V1_AgentDriver.Method.ReturnConversation.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
     }
 }
 
@@ -515,6 +700,40 @@ extension AgentProtocol_V1_AgentDriver.ClientProtocol {
             request: request,
             serializer: GRPCProtobuf.ProtobufSerializer<AgentProtocol_V1_ConversationRequest>(),
             deserializer: GRPCProtobuf.ProtobufDeserializer<AgentProtocol_V1_ConversationFile>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ReturnConversation" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > A session handed back (DriverMessage.hand_back): once its harness has
+    /// > ended, the wrapper sends its conversation up, the way Conversation
+    /// > sent it down, so the turns it took here go back with it. The header
+    /// > first, then its files, a file in pieces of at most 1 MiB with `last` on
+    /// > each file's last piece; the driver answers once it has them all. Only
+    /// > a wrapper that says protocol 2 or later in its hello calls it.
+    ///
+    /// - Parameters:
+    ///   - request: A streaming request producing `AgentProtocol_V1_ReturnedConversation` messages.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response and returns its result to
+    ///       the caller. Returning from the closure will cancel the RPC if it hasn't
+    ///       already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func returnConversation<Result>(
+        request: GRPCCore.StreamingClientRequest<AgentProtocol_V1_ReturnedConversation>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<AgentProtocol_V1_ReturnedConversationAck>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.returnConversation(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<AgentProtocol_V1_ReturnedConversation>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<AgentProtocol_V1_ReturnedConversationAck>(),
             options: options,
             onResponse: handleResponse
         )
@@ -586,6 +805,45 @@ extension AgentProtocol_V1_AgentDriver.ClientProtocol {
             metadata: metadata
         )
         return try await self.conversation(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ReturnConversation" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > A session handed back (DriverMessage.hand_back): once its harness has
+    /// > ended, the wrapper sends its conversation up, the way Conversation
+    /// > sent it down, so the turns it took here go back with it. The header
+    /// > first, then its files, a file in pieces of at most 1 MiB with `last` on
+    /// > each file's last piece; the driver answers once it has them all. Only
+    /// > a wrapper that says protocol 2 or later in its hello calls it.
+    ///
+    /// - Parameters:
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - producer: A closure producing request messages to send to the server. Returning
+    ///       from the closure closes the request stream.
+    ///   - handleResponse: A closure which handles the response and returns its result to
+    ///       the caller. Returning from the closure will cancel the RPC if it hasn't
+    ///       already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func returnConversation<Result>(
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        requestProducer producer: @Sendable @escaping (GRPCCore.RPCWriter<AgentProtocol_V1_ReturnedConversation>) async throws -> Void,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<AgentProtocol_V1_ReturnedConversationAck>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.StreamingClientRequest<AgentProtocol_V1_ReturnedConversation>(
+            metadata: metadata,
+            producer: producer
+        )
+        return try await self.returnConversation(
             request: request,
             options: options,
             onResponse: handleResponse

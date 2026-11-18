@@ -22,6 +22,13 @@ service AgentDriver {
   // where it goes under the harness's own folder for the folder it will
   // work in. Empty for an agent the driver has no conversation of.
   rpc Conversation(ConversationRequest) returns (stream ConversationFile);
+  // A session handed back (DriverMessage.hand_back): once its harness has
+  // ended, the wrapper sends its conversation up, the way Conversation
+  // sent it down, so the turns it took here go back with it. The header
+  // first, then its files, a file in pieces of at most 1 MiB with `last` on
+  // each file's last piece; the driver answers once it has them all. Only
+  // a wrapper that says protocol 2 or later in its hello calls it.
+  rpc ReturnConversation(stream ReturnedConversation) returns (ReturnedConversationAck);
 }
 
 message ConversationRequest {
@@ -44,8 +51,48 @@ message ConversationFile {
   bool last = 3;
 }
 
+// A handed-back session's conversation, as ReturnConversation carries it:
+// the header, then the files.
+message ReturnedConversation {
+  oneof part {
+    ReturnedConversationHeader header = 1;
+    // A file, or a piece of one, as Conversation sends it down: its place
+    // is its path under the harness's folder on the wrapper's machine
+    // (Claude's: `projects/<key>/<session_id>.jsonl`, the folder
+    // `projects/<key>/<session_id>/…` beside it, and the project's memory,
+    // `projects/<key>/memory/…`), `<key>` being the folder Claude keeps
+    // the working directory's conversations in there. The driver places
+    // them for its own folder, as it does the other way.
+    ConversationFile file = 2;
+  }
+}
+
+// Whose conversation it is, before its files.
+message ReturnedConversationHeader {
+  AgentID agent = 1;
+  // The harness ("claude"), whose folder the places are under.
+  string harness = 2;
+  // Where the session worked, as the wrapper's machine has it: the
+  // harness keyed its conversation by this folder.
+  string working_directory = 3;
+  // The harness's session id, the conversation's name; empty when the
+  // harness never said one, and then no files follow.
+  string session_id = 4;
+}
+
+// What the driver took: how many files, of which session.
+message ReturnedConversationAck {
+  int64 files = 1;
+  string session_id = 2;
+}
+
 // The wrapper's first message on the stream, and again after a reconnect.
 message WrapperHello {
+  // What the wrapper understands, so the driver sends only that:
+  // 1, the stream as it was first; 2, also DriverMessage.hand_back (and so
+  // ReturnConversation). A driver sends hand_back only to a wrapper that
+  // says 2 or more, and `stop` to an older one, whose conversation then
+  // stays where it ran.
   int32 protocol = 1;
   AgentID agent = 2;
   AgentSpec spec = 3;
@@ -121,7 +168,8 @@ message DriverMessage {
     ModelChange model = 3;
     // Stop the turn under way.
     Empty interrupt = 4;
-    // End the agent.
+    // End the agent. Its conversation stays where it ran (hand_back
+    // returns it).
     Empty stop = 5;
     // The entries received, up to this id.
     string acknowledged = 6;
@@ -132,8 +180,17 @@ message DriverMessage {
     // The driver's MCP server's answer to a WrapperMessage.mcp, or a
     // message of its own.
     McpResponse mcp = 8;
+    // End the agent as `stop` does, then return its conversation: once
+    // its harness has ended, the wrapper sends the conversation's files
+    // up (ReturnConversation), then tells the end as usual (`ended`).
+    // For a session moving back from where it ran. Only to a wrapper whose
+    // hello says protocol 2 or more; an older one is sent `stop`.
+    HandBack hand_back = 9;
   }
 }
+
+// DriverMessage.hand_back: nothing more to say yet.
+message HandBack {}
 
 message Send {
   // The message's id, so a resend is taken once.

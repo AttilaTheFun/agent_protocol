@@ -29,6 +29,11 @@ public actor AgentCore {
     /// Whether the turn under way was interrupted: its end (Claude's
     /// "error_during_execution") is then the interrupt, not an error.
     private var interrupted = false
+    /// A hand-back's return (handBack): run once the harness has ended,
+    /// before the end is told.
+    private var handingBack: (@Sendable (_ sessionID: String) async -> Void)?
+    /// Whether the harness has ended and its end waits on the hand-back.
+    private var awaitingReturn = false
 
     /// Why a harness didn't start.
     public enum Problem: Error, Equatable, CustomStringConvertible {
@@ -191,6 +196,22 @@ public actor AgentCore {
         if process.isRunning { kill(process.processIdentifier, SIGKILL) }
     }
 
+    /// Ends the agent as `stop` does, and once its harness has ended (its
+    /// conversation's files written and closed), runs `returning` with its
+    /// session id ("" when the harness never said one) before the end is
+    /// told: watchers hear `ended`, and `ended()` answers, only once it
+    /// has. For DriverMessage.hand_back, `returning` sends the
+    /// conversation up (ConversationReturn). Once only, and nothing once
+    /// the agent has ended.
+    public func handBack(grace: Duration = .seconds(3), returning: @escaping @Sendable (_ sessionID: String) async -> Void) async {
+        guard endedBecause == nil, !awaitingReturn, handingBack == nil else {
+            log("a hand-back, with the agent ended or already handing back")
+            return
+        }
+        handingBack = returning
+        await stop(grace: grace)
+    }
+
     /// What it has said and is doing, and from now on what changes: taken
     /// together, so nothing falls between them.
     public func attach() -> (rows: [AgentProtocol_V1_TranscriptEntry], state: AgentProtocol_V1_EphemeralState, sessionID: String,
@@ -332,6 +353,23 @@ public actor AgentCore {
     }
 
     private func harnessEnded(status: Int32) {
+        guard endedBecause == nil, !awaitingReturn else { return }
+        if let handingBack {
+            // A hand-back: the conversation returned first, then the end.
+            self.handingBack = nil
+            awaitingReturn = true
+            let session = self.session
+            Task {
+                await handingBack(session)
+                self.told(status: status)
+            }
+            return
+        }
+        told(status: status)
+    }
+
+    /// The harness's end, told: to its watchers and its waiters.
+    private func told(status: Int32) {
         guard endedBecause == nil else { return }
         let why = status == 0 ? "the harness ended" : "the harness ended with status \(status)"
         endedBecause = why

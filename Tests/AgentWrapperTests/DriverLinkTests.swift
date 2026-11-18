@@ -35,6 +35,12 @@ final class TestDriver: AgentProtocol_V1_AgentDriver.SimpleServiceProtocol {
         try await response.write(.with { $0.place = "\(project)/memory/MEMORY.md"; $0.data = Data("- a memory\n".utf8); $0.last = true })
     }
 
+    /// No hand-back here: as a driver that predates ReturnConversation.
+    func returnConversation(request: RPCAsyncSequence<AgentProtocol_V1_ReturnedConversation, any Error>,
+                            context: ServerContext) async throws -> AgentProtocol_V1_ReturnedConversationAck {
+        throw RPCError(code: .unimplemented, message: "no ReturnConversation")
+    }
+
     var answered: Bool {
         heard.withLock { messages in
             messages.contains { message in
@@ -69,7 +75,7 @@ final class DriverLinkTests: XCTestCase {
             XCTAssertEqual(said.agent.uuid, "a2")
             XCTAssertEqual(said.spec.title, "Linked")
             XCTAssertEqual(said.hostName, "test-host")
-            XCTAssertEqual(said.protocol, 1)
+            XCTAssertEqual(said.protocol, 2, "it takes a hand-back")
             await core.stop(grace: .milliseconds(200))
             _ = await core.ended()
             await linking.value

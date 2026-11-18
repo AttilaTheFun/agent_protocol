@@ -83,12 +83,115 @@ public nonisolated struct AgentProtocol_V1_ConversationFile: Sendable {
   public init() {}
 }
 
+/// A handed-back session's conversation, as ReturnConversation carries it:
+/// the header, then the files.
+public nonisolated struct AgentProtocol_V1_ReturnedConversation: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var part: AgentProtocol_V1_ReturnedConversation.OneOf_Part? = nil
+
+  public var header: AgentProtocol_V1_ReturnedConversationHeader {
+    get {
+      if case .header(let v)? = part {return v}
+      return AgentProtocol_V1_ReturnedConversationHeader()
+    }
+    set {part = .header(newValue)}
+  }
+
+  /// A file, or a piece of one, as Conversation sends it down: its place
+  /// is its path under the harness's folder on the wrapper's machine
+  /// (Claude's: `projects/<key>/<session_id>.jsonl`, the folder
+  /// `projects/<key>/<session_id>/…` beside it, and the project's memory,
+  /// `projects/<key>/memory/…`), `<key>` being the folder Claude keeps
+  /// the working directory's conversations in there. The driver places
+  /// them for its own folder, as it does the other way.
+  public var file: AgentProtocol_V1_ConversationFile {
+    get {
+      if case .file(let v)? = part {return v}
+      return AgentProtocol_V1_ConversationFile()
+    }
+    set {part = .file(newValue)}
+  }
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public nonisolated enum OneOf_Part: Equatable, Sendable {
+    case header(AgentProtocol_V1_ReturnedConversationHeader)
+    /// A file, or a piece of one, as Conversation sends it down: its place
+    /// is its path under the harness's folder on the wrapper's machine
+    /// (Claude's: `projects/<key>/<session_id>.jsonl`, the folder
+    /// `projects/<key>/<session_id>/…` beside it, and the project's memory,
+    /// `projects/<key>/memory/…`), `<key>` being the folder Claude keeps
+    /// the working directory's conversations in there. The driver places
+    /// them for its own folder, as it does the other way.
+    case file(AgentProtocol_V1_ConversationFile)
+
+  }
+
+  public init() {}
+}
+
+/// Whose conversation it is, before its files.
+public nonisolated struct AgentProtocol_V1_ReturnedConversationHeader: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var agent: AgentProtocol_V1_AgentID {
+    get {_agent ?? AgentProtocol_V1_AgentID()}
+    set {_agent = newValue}
+  }
+  /// Returns true if `agent` has been explicitly set.
+  public var hasAgent: Bool {self._agent != nil}
+  /// Clears the value of `agent`. Subsequent reads from it will return its default value.
+  public mutating func clearAgent() {self._agent = nil}
+
+  /// The harness ("claude"), whose folder the places are under.
+  public var harness: String = String()
+
+  /// Where the session worked, as the wrapper's machine has it: the
+  /// harness keyed its conversation by this folder.
+  public var workingDirectory: String = String()
+
+  /// The harness's session id, the conversation's name; empty when the
+  /// harness never said one, and then no files follow.
+  public var sessionID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _agent: AgentProtocol_V1_AgentID? = nil
+}
+
+/// What the driver took: how many files, of which session.
+public nonisolated struct AgentProtocol_V1_ReturnedConversationAck: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var files: Int64 = 0
+
+  public var sessionID: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 /// The wrapper's first message on the stream, and again after a reconnect.
 public nonisolated struct AgentProtocol_V1_WrapperHello: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  /// What the wrapper understands, so the driver sends only that:
+  /// 1, the stream as it was first; 2, also DriverMessage.hand_back (and so
+  /// ReturnConversation). A driver sends hand_back only to a wrapper that
+  /// says 2 or more, and `stop` to an older one, whose conversation then
+  /// stays where it ran.
   public var `protocol`: Int32 = 0
 
   public var agent: AgentProtocol_V1_AgentID {
@@ -334,7 +437,8 @@ public nonisolated struct AgentProtocol_V1_DriverMessage: Sendable {
     set {message = .interrupt(newValue)}
   }
 
-  /// End the agent.
+  /// End the agent. Its conversation stays where it ran (hand_back
+  /// returns it).
   public var stop: AgentProtocol_V1_Empty {
     get {
       if case .stop(let v)? = message {return v}
@@ -373,6 +477,19 @@ public nonisolated struct AgentProtocol_V1_DriverMessage: Sendable {
     set {message = .mcp(newValue)}
   }
 
+  /// End the agent as `stop` does, then return its conversation: once
+  /// its harness has ended, the wrapper sends the conversation's files
+  /// up (ReturnConversation), then tells the end as usual (`ended`).
+  /// For a session moving back from where it ran. Only to a wrapper whose
+  /// hello says protocol 2 or more; an older one is sent `stop`.
+  public var handBack: AgentProtocol_V1_HandBack {
+    get {
+      if case .handBack(let v)? = message {return v}
+      return AgentProtocol_V1_HandBack()
+    }
+    set {message = .handBack(newValue)}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Message: Equatable, Sendable {
@@ -382,7 +499,8 @@ public nonisolated struct AgentProtocol_V1_DriverMessage: Sendable {
     case model(AgentProtocol_V1_ModelChange)
     /// Stop the turn under way.
     case interrupt(AgentProtocol_V1_Empty)
-    /// End the agent.
+    /// End the agent. Its conversation stays where it ran (hand_back
+    /// returns it).
     case stop(AgentProtocol_V1_Empty)
     /// The entries received, up to this id.
     case acknowledged(String)
@@ -393,8 +511,25 @@ public nonisolated struct AgentProtocol_V1_DriverMessage: Sendable {
     /// The driver's MCP server's answer to a WrapperMessage.mcp, or a
     /// message of its own.
     case mcp(AgentProtocol_V1_McpResponse)
+    /// End the agent as `stop` does, then return its conversation: once
+    /// its harness has ended, the wrapper sends the conversation's files
+    /// up (ReturnConversation), then tells the end as usual (`ended`).
+    /// For a session moving back from where it ran. Only to a wrapper whose
+    /// hello says protocol 2 or more; an older one is sent `stop`.
+    case handBack(AgentProtocol_V1_HandBack)
 
   }
+
+  public init() {}
+}
+
+/// DriverMessage.hand_back: nothing more to say yet.
+public nonisolated struct AgentProtocol_V1_HandBack: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 }
@@ -547,6 +682,157 @@ nonisolated extension AgentProtocol_V1_ConversationFile: SwiftProtobuf.Message, 
     if lhs.place != rhs.place {return false}
     if lhs.data != rhs.data {return false}
     if lhs.last != rhs.last {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension AgentProtocol_V1_ReturnedConversation: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ReturnedConversation"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}header\0\u{1}file\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: AgentProtocol_V1_ReturnedConversationHeader?
+        var hadOneofValue = false
+        if let current = self.part {
+          hadOneofValue = true
+          if case .header(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.part = .header(v)
+        }
+      }()
+      case 2: try {
+        var v: AgentProtocol_V1_ConversationFile?
+        var hadOneofValue = false
+        if let current = self.part {
+          hadOneofValue = true
+          if case .file(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.part = .file(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.part {
+    case .header?: try {
+      guard case .header(let v)? = self.part else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    }()
+    case .file?: try {
+      guard case .file(let v)? = self.part else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+    }()
+    case nil: break
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: AgentProtocol_V1_ReturnedConversation, rhs: AgentProtocol_V1_ReturnedConversation) -> Bool {
+    if lhs.part != rhs.part {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension AgentProtocol_V1_ReturnedConversationHeader: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ReturnedConversationHeader"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}agent\0\u{1}harness\0\u{3}working_directory\0\u{3}session_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._agent) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.harness) }()
+      case 3: try { try decoder.decodeSingularStringField(value: &self.workingDirectory) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._agent {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.harness.isEmpty {
+      try visitor.visitSingularStringField(value: self.harness, fieldNumber: 2)
+    }
+    if !self.workingDirectory.isEmpty {
+      try visitor.visitSingularStringField(value: self.workingDirectory, fieldNumber: 3)
+    }
+    if !self.sessionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: AgentProtocol_V1_ReturnedConversationHeader, rhs: AgentProtocol_V1_ReturnedConversationHeader) -> Bool {
+    if lhs._agent != rhs._agent {return false}
+    if lhs.harness != rhs.harness {return false}
+    if lhs.workingDirectory != rhs.workingDirectory {return false}
+    if lhs.sessionID != rhs.sessionID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension AgentProtocol_V1_ReturnedConversationAck: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ReturnedConversationAck"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}files\0\u{3}session_id\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularInt64Field(value: &self.files) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.sessionID) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if self.files != 0 {
+      try visitor.visitSingularInt64Field(value: self.files, fieldNumber: 1)
+    }
+    if !self.sessionID.isEmpty {
+      try visitor.visitSingularStringField(value: self.sessionID, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: AgentProtocol_V1_ReturnedConversationAck, rhs: AgentProtocol_V1_ReturnedConversationAck) -> Bool {
+    if lhs.files != rhs.files {return false}
+    if lhs.sessionID != rhs.sessionID {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -877,7 +1163,7 @@ nonisolated extension AgentProtocol_V1_Entries: SwiftProtobuf.Message, SwiftProt
 
 nonisolated extension AgentProtocol_V1_DriverMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DriverMessage"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}send\0\u{1}approval\0\u{1}model\0\u{1}interrupt\0\u{1}stop\0\u{1}acknowledged\0\u{1}token\0\u{1}mcp\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}send\0\u{1}approval\0\u{1}model\0\u{1}interrupt\0\u{1}stop\0\u{1}acknowledged\0\u{1}token\0\u{1}mcp\0\u{3}hand_back\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -979,6 +1265,19 @@ nonisolated extension AgentProtocol_V1_DriverMessage: SwiftProtobuf.Message, Swi
           self.message = .mcp(v)
         }
       }()
+      case 9: try {
+        var v: AgentProtocol_V1_HandBack?
+        var hadOneofValue = false
+        if let current = self.message {
+          hadOneofValue = true
+          if case .handBack(let m) = current {v = m}
+        }
+        try decoder.decodeSingularMessageField(value: &v)
+        if let v = v {
+          if hadOneofValue {try decoder.handleConflictingOneOf()}
+          self.message = .handBack(v)
+        }
+      }()
       default: break
       }
     }
@@ -1022,6 +1321,10 @@ nonisolated extension AgentProtocol_V1_DriverMessage: SwiftProtobuf.Message, Swi
       guard case .mcp(let v)? = self.message else { preconditionFailure() }
       try visitor.visitSingularMessageField(value: v, fieldNumber: 8)
     }()
+    case .handBack?: try {
+      guard case .handBack(let v)? = self.message else { preconditionFailure() }
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 9)
+    }()
     case nil: break
     }
     try unknownFields.traverse(visitor: &visitor)
@@ -1029,6 +1332,25 @@ nonisolated extension AgentProtocol_V1_DriverMessage: SwiftProtobuf.Message, Swi
 
   public static func ==(lhs: AgentProtocol_V1_DriverMessage, rhs: AgentProtocol_V1_DriverMessage) -> Bool {
     if lhs.message != rhs.message {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension AgentProtocol_V1_HandBack: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".HandBack"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: AgentProtocol_V1_HandBack, rhs: AgentProtocol_V1_HandBack) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

@@ -101,7 +101,43 @@ the tests' stand-in does.
   folder it will work in;
 - clones each source under `AGENT_SOURCES_DIR` by its name and ref;
 - then runs `claude --resume`.
-Nothing already there is overwritten. A job with no working directory, on a
+Nothing already there is overwritten.
+
+**A session moving back** from a runner is handed back
+(`DriverMessage.hand_back`): the wrapper ends the agent as a stop does,
+and once its harness has ended it returns the conversation, so the turns
+taken on the runner go back with it. It calls `AgentDriver.ReturnConversation`
+(a client stream, the agent's token shown as on every call): a
+`ReturnedConversationHeader` first (the agent, the harness, the working
+directory, the harness's session id), then the files, the same set
+`Conversation` brings down, from Claude's folder:
+- the conversation, `projects/<key>/<session_id>.jsonl`;
+- every file under the folder beside it, `projects/<key>/<session_id>/…`
+  (its subagents', its tool results);
+- every file under the project's memory, `projects/<key>/memory/…`.
+
+`<key>` is the folder Claude keeps the working directory's conversations
+in: its real path with every character but an ASCII letter or digit as
+`-` (`/Volumes/Sessions/Claude/<agent>` is `-Volumes-Sessions-Claude-<agent>`).
+When the conversation isn't there (Claude shortens a very long key), the
+wrapper takes the folder under `projects/` that has `<session_id>.jsonl`.
+The places are as the runner has them; the driver places the files for its
+own folder, as it does the other way. Each file goes as `ConversationFile`s
+of at most 1 MiB, `last` on its last piece. Only regular files go: no
+symbolic link under Claude's folder is followed (one is skipped, as a
+socket is), so nothing outside it is sent. The driver answers
+`ReturnedConversationAck` (how many files, of which session); then the
+wrapper tells the end as usual (`ended`). A harness that never said its
+session id sends the header alone. A return that fails (a driver that
+doesn't implement it, the network, 5 minutes without an answer) is logged
+and the agent ends anyway; its conversation then stays on the runner.
+
+The wrapper says protocol 2 in its hello (`WrapperHello.protocol`) since
+it takes `hand_back`. A driver sends `hand_back` only to a wrapper that
+says 2 or more; an older one is sent `stop`, and its conversation stays
+where it ran. A stop is as it was: the agent ends, nothing returned.
+
+A job with no working directory, on a
 runner that sets `AGENT_SESSIONS_DIR`, works in `<dir>/Claude/<agent>`; the
 wrapper refuses to start unless the agent's id is a UUID and the harness a
 single folder name (no `/`, `.` or `..`, not empty), so the folder stays
@@ -147,7 +183,7 @@ in `AGENT_TOKEN`, beside `AGENT_ID` and `AGENT_JOB`, never in `AGENT_JOB`
 or on a command line. An empty `Job.token` means none: the runner sets no
 `AGENT_TOKEN` (and the wrapper takes an empty one as unset), and no call
 shows a bearer. The wrapper shows it on each call it makes for the
-agent, its driver's `Connect` and `Conversation` and its dispatcher's
+agent, its driver's `Connect`, `Conversation` and `ReturnConversation` and its dispatcher's
 `Report`, as gRPC metadata `authorization: Bearer <token>`, and takes a
 fresh one when the driver sends it (`DriverMessage.token`).
 
@@ -280,6 +316,15 @@ driver's own computer, and, when the agent asks before acting
   once, and must be prompted and answered once (Visor does, since
   visor#438). Drop the prompt on `approval_withdrawn`.
 - A driver that serves MCP is taken to answer approvals too.
+
+**What a driver does to move a session back**: send `hand_back` (to a
+wrapper whose hello said protocol 2 or more, else `stop`), and take its
+`ReturnConversation`: the header, then each file's pieces joined by
+`place` until `last`, placed for its own folder as `Conversation`'s are
+for the runner's (`projects/<key>/…` under its own key for the folder the
+session works in there; refusing any place outside those three, as Visor
+refuses them coming down). Answer with how many files it took. The agent's
+`ended` follows on `Connect`.
 
 Not yet: Codex and OpenRouter, model changes, and the AgentWrapper
 service. Its harnesses
