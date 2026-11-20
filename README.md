@@ -66,6 +66,10 @@ tools/generate.sh              # the protos' Swift, after changing a proto (need
 tools/build_static.sh out      # agent-wrapper as one static file per Linux architecture (Swift 6.4.0)
 ```
 
+CI runs on GitHub's own runners alone (the repository is public): Swift's
+jobs in Swift's 6.4.0 image, by digest, on `ubuntu-24.04-arm`, given curl
+and Python by `tools/ci/job_tools.sh`.
+
 Releases go through Reviews, as Logan's other repositories' do. CI's `run:
 release` (by hand, on main, with `version`) runs verify, the tests and their
 proof, and the static build. Then it proposes a draft release, `v<version>`,
