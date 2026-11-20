@@ -3,12 +3,17 @@ name: CI
 # has it (AttilaTheFun/reviews, docs/CI_POLICY.md): automated CI only builds,
 # and the tests run by hand. As MultiPass's (AttilaTheFun/multipass).
 #
-# - A pull request runs one job, `container`, the required check: in one of
-#   Shireworks' single-use Linux containers (agent_protocol-jit, a runner of
-#   Visor's agent image, which has Swift), it checks the protos' Swift matches
-#   the protos and builds the package and its tests. A newer push cancels its
-#   run. A fork's pull request runs nothing here: no self-hosted runner ever
-#   runs a fork's code.
+# Every job runs on GitHub's own standard runners, as every public
+# repository's does (Logan, 15 Nov 2026): nothing of Shireworks' at run
+# time, no runner of its. Swift's jobs run in Swift's own image (6.4.0, by
+# digest, as Visor's) on `ubuntu-24.04-arm`, given what the image lacks by
+# tools/ci/job_tools.sh (curl, Python). Nothing here is signed and no
+# secret is used: the job's own token makes the draft.
+#
+# - A pull request runs one job, `container`, the required check: it checks
+#   the protos' Swift matches the protos and builds the package and its
+#   tests. A newer push cancels its run. A fork's pull request runs it too,
+#   on GitHub's runners, with no secret.
 # - Each commit on main runs `container` too, so main's head has its check.
 # - By hand (workflow_dispatch, `run`):
 #   - `verify` (main or a branch): the tests and the proof of them
@@ -55,13 +60,15 @@ defaults:
     shell: bash
 jobs:
   container:
-    if: >-
-      github.event_name == 'push'
-      || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: [self-hosted, agent_protocol-jit]
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: swift:6.4.0-noble@sha256:31d14d727f4451f25e29bac9c42563a098c39ac66415e8bad970f48038e38aca
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - name: The job's tools
+        run: tools/ci/job_tools.sh
       - name: protoc
         run: |
           # protoc 36.2's zips, pinned by SHA-256 (protobuf publishes no
@@ -84,13 +91,17 @@ jobs:
 
   verify:
     if: github.event_name == 'workflow_dispatch'
-    runs-on: [self-hosted, agent_protocol-jit]
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: swift:6.4.0-noble@sha256:31d14d727f4451f25e29bac9c42563a098c39ac66415e8bad970f48038e38aca
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           fetch-tags: true
+      - name: The job's tools
+        run: tools/ci/job_tools.sh
       - name: The package and its tests
         run: swift build --build-tests
       - name: The tests
@@ -123,10 +134,14 @@ jobs:
   # The static agent-wrapper, for each architecture (tools/build_static.sh).
   static:
     if: github.event_name == 'workflow_dispatch' && inputs.run == 'release'
-    runs-on: [self-hosted, agent_protocol-jit]
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: swift:6.4.0-noble@sha256:31d14d727f4451f25e29bac9c42563a098c39ac66415e8bad970f48038e38aca
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - name: The job's tools
+        run: tools/ci/job_tools.sh
       - run: tools/build_static.sh "$RUNNER_TEMP/static"
       - uses: actions/upload-artifact@v4
         with:
@@ -142,7 +157,7 @@ jobs:
     if: >-
       always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
       inputs.run == 'release' && needs.verify.result == 'success' && needs.static.result == 'success'
-    runs-on: [self-hosted, agent_protocol-jit]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       # The draft release.
@@ -170,7 +185,7 @@ jobs:
   # and kept its proof). Nothing is built or published.
   release:
     if: github.event_name == 'release' && !github.event.release.prerelease && startsWith(github.ref, 'refs/tags/v')
-    runs-on: [self-hosted, agent_protocol-jit]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
