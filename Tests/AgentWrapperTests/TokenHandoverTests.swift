@@ -170,7 +170,8 @@ final class TokenHandoverTests: XCTestCase {
         let transport = HTTP2ServerTransport.Posix(address: .ipv4(host: "127.0.0.1", port: 0), transportSecurity: .plaintext)
         var log = ""
         try await withGRPCServer(transport: transport, services: [TestDispatcher()], interceptors: [seen]) { server in
-            let port = try XCTUnwrap(try await transport.listeningAddress.ipv4?.port)
+            let address = try await transport.listeningAddress
+            let port = try XCTUnwrap(address.ipv4?.port)
             let wrapper = Process()
             wrapper.executableURL = URL(fileURLWithPath: program)
             wrapper.arguments = ["--skip-permissions"]
