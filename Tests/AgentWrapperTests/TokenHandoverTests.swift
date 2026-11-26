@@ -3,8 +3,9 @@
 // 0600 file (AGENT_TOKEN_FILE), read and deleted; AGENT_TOKEN still taken,
 // deprecated. And, on Linux, agent-wrapper itself as a runner starts it:
 // the token shown to its dispatcher, none in its harness's environment, and
-// the wrapper undumpable, so its harness (the same user) is refused its
-// /proc/<pid>/environ, fd and mem, while the harness reads its own.
+// the wrapper undumpable, so its harness (the same user, or root with the
+// OCI default capabilities) is refused its /proc/<pid>/environ, fd/<n>, mem
+// and maps, while the harness reads its own.
 
 import AgentProtocol
 import AgentWrapper
@@ -104,28 +105,25 @@ final class TokenHandoverTests: XCTestCase {
     #if os(Linux)
     /// A stand-in for Claude that looks for the token where a hostile one
     /// would: its own environment, and the wrapper's (its parent's)
-    /// /proc/<pid>/environ, fd and mem, each opened as a process of the
-    /// same user, and its own /proc/self/environ (dumpable again from its
-    /// exec). It writes what it found to STAND_IN_REPORT, then says its
+    /// /proc/<pid>/environ, fd/0, mem and maps, each opened as a process of
+    /// the same user, and its own /proc/self/environ (dumpable again from
+    /// its exec). It writes what it found to STAND_IN_REPORT, then says its
     /// session and ends.
     static let standIn = FakeClaude.write(#"""
     import errno, json, os, sys
     wrapper = os.getppid()
-    def tried(path, folder=False):
+    def tried(path):
         try:
-            if folder:
-                os.listdir(path)
-            else:
-                os.close(os.open(path, os.O_RDONLY))
+            os.close(os.open(path, os.O_RDONLY))
             return "opened"
         except OSError as e:
             return errno.errorcode.get(e.errno, str(e.errno))
     found = {"environment": sorted(k for k in os.environ if k.startswith("AGENT_TOKEN")),
              "token in environment": any("eyJ" in v for v in os.environ.values()),
              "environ": tried("/proc/%d/environ" % wrapper),
-             "fd": tried("/proc/%d/fd" % wrapper, folder=True),
              "fd/0": tried("/proc/%d/fd/0" % wrapper),
              "mem": tried("/proc/%d/mem" % wrapper),
+             "maps": tried("/proc/%d/maps" % wrapper),
              "cmdline": tried("/proc/%d/cmdline" % wrapper),
              "own environ": tried("/proc/self/environ"),
              "arguments": sys.argv[1:]}
@@ -212,7 +210,9 @@ final class TokenHandoverTests: XCTestCase {
     func checkHarnessSawNothing(_ found: [String: Any], log: String) {
         XCTAssertEqual(found["environment"] as? [String], [], log)
         XCTAssertEqual(found["token in environment"] as? Bool, false)
-        for refused in ["environ", "fd", "fd/0", "mem"] {
+        // (Root lists /proc/<wrapper>/fd, its descriptors' numbers, as root
+        // reads any folder: what they are, fd/<n>, it's refused.)
+        for refused in ["environ", "fd/0", "mem", "maps"] {
             XCTAssertEqual(found[refused] as? String, "EACCES", "the harness opening /proc/<wrapper>/\(refused)")
         }
         XCTAssertEqual(found["cmdline"] as? String, "opened", "cmdline stays readable, as ps needs")
