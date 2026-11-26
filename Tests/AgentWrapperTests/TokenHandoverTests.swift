@@ -148,14 +148,16 @@ final class TokenHandoverTests: XCTestCase {
         throw CocoaError(.fileNoSuchFile)
     }
 
-    /// Whether this process may read any process's memory anyway (root
-    /// with CAP_SYS_PTRACE, bit 19 of CapEff), which undumpable doesn't stop.
+    /// Whether this process may read an undumpable process's /proc anyway:
+    /// CAP_SYS_PTRACE, CAP_SYS_ADMIN or CAP_PERFMON (bits 19, 21 and 38 of
+    /// CapEff), as root in a privileged container has. CI's container (the
+    /// OCI default set, as Visor's Sessions container's agents) has none.
     func mayTraceAnything() -> Bool {
         let status = (try? String(contentsOfFile: "/proc/self/status", encoding: .utf8)) ?? ""
         guard let line = status.split(separator: "\n").first(where: { $0.hasPrefix("CapEff:") }),
               let caps = UInt64(line.dropFirst("CapEff:".count).trimmingCharacters(in: .whitespaces), radix: 16)
         else { return false }
-        return caps & (1 << 19) != 0
+        return caps & (1 << 19 | 1 << 21 | 1 << 38) != 0
     }
 
     /// agent-wrapper run as a runner runs it, with `handover` set (and
@@ -163,7 +165,9 @@ final class TokenHandoverTests: XCTestCase {
     /// call's bearer: what its stand-in found, the bearers its reports
     /// showed, and what it logged.
     func runWrapper(_ handover: [String: String], input: String? = nil) async throws -> (found: [String: Any], shown: [String], log: String) {
-        if mayTraceAnything() { throw XCTSkip("this process has CAP_SYS_PTRACE, which reads an undumpable process's /proc all the same") }
+        if mayTraceAnything() {
+            throw XCTSkip("this process has CAP_SYS_PTRACE, CAP_SYS_ADMIN or CAP_PERFMON, which read an undumpable process's /proc all the same")
+        }
         let program = try wrapperProgram()
         let report = FileManager.default.temporaryDirectory.appendingPathComponent("stand-in-\(UUID().uuidString.prefix(8)).json").path
         let seen = SeenCalls()

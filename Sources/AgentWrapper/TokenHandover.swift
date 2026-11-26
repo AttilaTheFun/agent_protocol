@@ -31,9 +31,10 @@ private func posixRead(_ fd: Int32, _ buffer: UnsafeMutableRawPointer?, _ count:
 /// On Linux, what keeps it is `protectProcess`, the first thing agent-wrapper
 /// does: the process undumpable, so its /proc/<pid> is root's, and the
 /// harness, which runs as the wrapper's user, is refused its environ, fd,
-/// mem and maps (cmdline and status stay readable, as `ps` needs). An
-/// undumpable process's memory can still be read by root with
-/// CAP_SYS_PTRACE, which a runner keeps from its agents. On macOS
+/// mem and maps (cmdline and status stay readable, as `ps` needs). Root
+/// with CAP_SYS_PTRACE still reads all of it, and with CAP_SYS_ADMIN or
+/// CAP_PERFMON its environ and maps: a runner keeps those from its agents
+/// (the OCI default set has none of them). On macOS
 /// there's no such thing; the handover is what keeps it there: `ps -E`
 /// (KERN_PROCARGS2) shows a process's environment as it began, which no
 /// longer holds the token, and reading another process's memory takes

@@ -229,9 +229,13 @@ Claude's, and:
   on the command line). What the wrapper starts (the
   harness, git, `agent-wrapper mcp`) is dumpable again from its exec, and
   reads its own `/proc` as before; the wrapper's own reads of
-  `/proc/self` are its own. Root with `CAP_SYS_PTRACE` is refused nothing,
-  so a runner whose agents run as root keeps that capability from them
-  (as the OCI default does). `hidepid=2` on the container's `/proc`, or a
+  `/proc/self` are its own. It holds against root only without
+  `CAP_SYS_PTRACE` (which is refused nothing), `CAP_SYS_ADMIN` or
+  `CAP_PERFMON` (either reads `environ` and `maps`): a runner whose agents
+  run as root keeps those from them, as the OCI default set does. Checked
+  on Linux 6.18: the harness as another process of the wrapper's user,
+  and as root with the OCI set, is refused all four; as root with all
+  capabilities, it isn't. `hidepid=2` on the container's `/proc`, or a
   user of the harness's own, are a defence beside it.
 - **On macOS** there's no such thing; the handover is what keeps the
   token: `KERN_PROCARGS2` shows the environment the wrapper began with,

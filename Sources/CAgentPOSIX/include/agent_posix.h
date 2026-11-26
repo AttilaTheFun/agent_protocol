@@ -130,8 +130,9 @@ int agent_original_destination(int socket, char *host, size_t size, unsigned sho
 
 /// This process made undumpable (Linux's prctl(PR_SET_DUMPABLE, 0)): its
 /// /proc/<pid> files then belong to root, and a process of the same user
-/// without CAP_SYS_PTRACE is refused environ, fd, mem and maps (EACCES;
-/// cmdline and status stay readable) and can't ptrace it. A program it execs starts dumpable again.
+/// without CAP_SYS_PTRACE, CAP_SYS_ADMIN or CAP_PERFMON is refused environ,
+/// fd, mem and maps (EACCES; cmdline and status stay readable) and can't
+/// ptrace it. A program it execs starts dumpable again.
 /// 0, or -1 with errno set (ENOTSUP on macOS, which has no such thing).
 int agent_set_undumpable(void);
 
