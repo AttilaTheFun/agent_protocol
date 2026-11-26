@@ -1,5 +1,6 @@
-// The agent's token: carried in the Job, handed to the wrapper in
-// AGENT_TOKEN, kept from the harness, and shown as metadata on each call
+// The agent's token: carried in the Job, handed to the wrapper (on
+// AGENT_TOKEN_FD or in AGENT_TOKEN_FILE, TokenHandoverTests; or the
+// deprecated AGENT_TOKEN), kept from the harness, and shown as metadata on each call
 // the wrapper makes for the agent (its driver's Connect and Conversation,
 // its dispatcher's Report), a fresh one from the driver shown from then on;
 // and a runner's, on its Renew and Report, a fresh one from a renewal
@@ -197,6 +198,7 @@ final class AgentTokenTests: XCTestCase {
         }
     }
 
+    /// The deprecated AGENT_TOKEN, still taken for a release.
     func testTheTokenComesFromTheEnvironmentAlone() throws {
         let job = #"{"agent":"u1","harness":"echo","token":"in-the-job"}"#
         let options = try WrapperOptions(arguments: [], environment: ["AGENT_ID": "u1@http://d", "AGENT_JOB": job, "AGENT_TOKEN": "secret"])
@@ -230,15 +232,18 @@ final class AgentTokenTests: XCTestCase {
     }
 
     func testTheHarnessIsNotGivenTheToken() {
-        let environment = HarnessLaunch.environment(from: ["AGENT_TOKEN": "secret", "AGENT_ID": "u1@http://d", "PATH": "/bin"])
+        let environment = HarnessLaunch.environment(from: ["AGENT_TOKEN": "secret", "AGENT_TOKEN_FD": "0", "AGENT_TOKEN_FILE": "/run/t",
+                                                           "AGENT_ID": "u1@http://d", "PATH": "/bin"])
         XCTAssertEqual(environment, ["AGENT_ID": "u1@http://d", "PATH": "/bin"])
     }
 
     func testTheTokenIsUnsetSoNoChildInheritsIt() throws {
-        setenv("AGENT_TOKEN", "secret", 1)
+        for variable in ["AGENT_TOKEN", "AGENT_TOKEN_FD", "AGENT_TOKEN_FILE"] { setenv(variable, "secret", 1) }
         AgentToken.removeFromEnvironment()
-        XCTAssertNil(getenv("AGENT_TOKEN"))
-        XCTAssertNil(ProcessInfo.processInfo.environment["AGENT_TOKEN"])
+        for variable in ["AGENT_TOKEN", "AGENT_TOKEN_FD", "AGENT_TOKEN_FILE"] {
+            XCTAssertNil(getenv(variable))
+            XCTAssertNil(ProcessInfo.processInfo.environment[variable])
+        }
         // A child started with the environment as it is now.
         let child = Process()
         child.executableURL = URL(fileURLWithPath: "/bin/sh")

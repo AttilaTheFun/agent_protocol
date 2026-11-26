@@ -18,6 +18,8 @@
 #include <sys/sysctl.h>
 #else
 #include <dirent.h>
+#include <sys/prctl.h>
+#include <sys/vfs.h>
 #endif
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -499,4 +501,39 @@ int agent_resolve_connect(const char *host, unsigned short port, int seconds, ch
         return -1;
     }
     return connection;
+}
+
+int agent_set_undumpable(void) {
+#ifdef __linux__
+    return prctl(PR_SET_DUMPABLE, 0, 0, 0, 0);
+#else
+    errno = ENOTSUP;
+    return -1;
+#endif
+}
+
+int agent_dumpable(void) {
+#ifdef __linux__
+    return prctl(PR_GET_DUMPABLE, 0, 0, 0, 0);
+#else
+    errno = ENOTSUP;
+    return -1;
+#endif
+}
+
+// linux/magic.h's, which not every C library's headers carry.
+#ifndef TMPFS_MAGIC
+#define TMPFS_MAGIC 0x01021994
+#endif
+
+int agent_on_tmpfs(int fd) {
+#ifdef __linux__
+    struct statfs info;
+    if (fstatfs(fd, &info) != 0) return -1;
+    return info.f_type == TMPFS_MAGIC ? 1 : 0;
+#else
+    (void)fd;
+    errno = ENOTSUP;
+    return -1;
+#endif
 }

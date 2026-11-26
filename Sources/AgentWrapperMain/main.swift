@@ -17,6 +17,10 @@ if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "mcp" {
 }
 
 let log: @Sendable (String) -> Void = { FileHandle.standardError.write(Data("agent-wrapper: \($0)\n".utf8)) }
+// Undumpable first (Linux), before the agent's token is read: the harness,
+// as the same user, is refused /proc/<wrapper>'s environ, fd and mem
+// (TokenHandover).
+if let why = TokenHandover.protectProcess() { log("not undumpable: \(why)") }
 // A write to a connection whose reader has gone fails, rather than ending us.
 signal(SIGPIPE, SIG_IGN)
 
@@ -27,10 +31,16 @@ do {
     log("\(error)\n\n\(WrapperOptions.usage)")
     exit(2)
 }
-// The agent's token (AGENT_TOKEN): shown on each call made for it, and
-// unset here at once so no child inherits it (AgentToken.removeFromEnvironment
-// says what that does and doesn't hide).
-let token = AgentToken(options.token ?? "")
+// The agent's token, from its descriptor or file (TokenHandover), or the
+// deprecated AGENT_TOKEN: shown on each call made for it. The handover's
+// variables are unset here at once so no child inherits them.
+let token: AgentToken
+do {
+    token = AgentToken(try TokenHandover.take(options, log: log))
+} catch {
+    log("\(error)")
+    exit(2)
+}
 AgentToken.removeFromEnvironment()
 let reports = options.dispatcherURL.flatMap {
     DispatcherReports(url: $0, agent: options.agent, runner: options.runner ?? ProcessInfo.processInfo.hostName, token: token)

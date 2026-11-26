@@ -20,13 +20,18 @@ import Foundation
 ///   working directory works in `<dir>/Claude/<agent>` there (refused
 ///   unless the agent's id is a UUID and its harness one folder's name);
 /// - `AGENT_SOURCES_DIR`: where a resumed session's `sources` are cloned;
-/// - `AGENT_TOKEN`: the agent's token (Job.token), if its job had one:
-///   shown to its driver and dispatcher (AgentToken). Unset or empty,
-///   there is none: no call shows a bearer. Only here: not in AGENT_JOB,
-///   and no flag, so it stays off every command line. The wrapper unsets
-///   it once read and leaves it out of the harness's environment, so no
-///   child inherits it; the harness, as the same user, can still read it
-///   in /proc/<wrapper>/environ (AgentToken).
+/// - `AGENT_TOKEN_FD` or `AGENT_TOKEN_FILE`: how the agent's token
+///   (Job.token) is handed over, if its job had one: a descriptor the
+///   wrapper inherits and reads to its end, or a 0600 file (on a tmpfs)
+///   it reads and deletes (TokenHandover). Shown to its driver and
+///   dispatcher (AgentToken). Neither, or an empty token: there is none,
+///   and no call shows a bearer. Never in AGENT_JOB, a flag or a harness's
+///   environment;
+/// - `AGENT_TOKEN`: the token in the environment, as before 0.6:
+///   deprecated (the wrapper logs that it came so), taken when neither of
+///   those is set, and gone in 0.7. The process's environment as it began
+///   keeps it (/proc/<wrapper>/environ, `ps -E`) whatever the wrapper
+///   unsets (agent_protocol#17).
 ///
 /// By hand, the same as flags. `--skip-permissions` makes the agent act
 /// without asking whatever the job says: a runner passes it when the job
@@ -48,9 +53,13 @@ public struct WrapperOptions: Sendable, Equatable {
     public var sources: [AgentProtocol_V1_Source] = []
     /// Where the runner keeps sources (AGENT_SOURCES_DIR: /Volumes/Sources).
     public var sourcesDirectory: String?
-    /// The agent's token (AGENT_TOKEN), if any: nil when AGENT_TOKEN is
-    /// unset or empty.
+    /// The agent's token in the environment (AGENT_TOKEN, deprecated), if
+    /// any: nil when AGENT_TOKEN is unset or empty.
     public var token: String?
+    /// The descriptor the token comes on (AGENT_TOKEN_FD), if any.
+    public var tokenDescriptor: Int32?
+    /// The file the token comes in (AGENT_TOKEN_FILE), if any.
+    public var tokenFile: String?
 
     public enum Problem: Error, Equatable, CustomStringConvertible {
         case missing(String)
@@ -69,7 +78,7 @@ public struct WrapperOptions: Sendable, Equatable {
     public static let usage = """
         Usage: agent-wrapper --agent <uuid> --dispatcher <url> [--harness claude|echo] [--model m] [--effort e]
                              [--cwd dir] [--title t] [--prompt text] [--resume id] [--skip-permissions] [--label key=value]…
-        Or, as a runner starts it: AGENT_ID=<uuid>@<url> AGENT_JOB=<json> [AGENT_DISPATCHER_URL] [AGENT_DRIVER_URL] [AGENT_RUNNER] [AGENT_TOKEN].
+        Or, as a runner starts it: AGENT_ID=<uuid>@<url> AGENT_JOB=<json> [AGENT_DISPATCHER_URL] [AGENT_DRIVER_URL] [AGENT_RUNNER] [AGENT_TOKEN_FD | AGENT_TOKEN_FILE].
         """
 
     public init(arguments: [String], environment: [String: String]) throws(Problem) {
@@ -89,6 +98,12 @@ public struct WrapperOptions: Sendable, Equatable {
         claudeProgram = Self.given(environment["AGENT_WRAPPER_CLAUDE"])
         sourcesDirectory = Self.given(environment["AGENT_SOURCES_DIR"])
         token = Self.given(environment["AGENT_TOKEN"])
+        tokenFile = Self.given(environment["AGENT_TOKEN_FILE"])
+        if let fd = Self.given(environment["AGENT_TOKEN_FD"]) {
+            guard let number = Int32(fd), number >= 0 else { throw .bad("AGENT_TOKEN_FD is a descriptor's number") }
+            tokenDescriptor = number
+        }
+        if tokenDescriptor != nil, tokenFile != nil { throw .bad("AGENT_TOKEN_FD and AGENT_TOKEN_FILE each hand over the token: set one") }
         // A session with no folder named, where the runner keeps sessions
         // (AGENT_SESSIONS_DIR: /Volumes/Sessions): a folder of its own
         // there, <dir>/Claude/<id>, as Visor's SessionFolders gives one.
