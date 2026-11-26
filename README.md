@@ -183,24 +183,60 @@ What a runner does with `--skip-permissions`:
 
 **The agent's token** (`Job.token`, minted by the dispatcher;
 docs/retiring-multipass.md, section 4): a runner hands it to the wrapper
-in `AGENT_TOKEN`, beside `AGENT_ID` and `AGENT_JOB`, never in `AGENT_JOB`
-or on a command line. An empty `Job.token` means none: the runner sets no
-`AGENT_TOKEN` (and the wrapper takes an empty one as unset), and no call
-shows a bearer. The wrapper shows it on each call it makes for the
-agent, its driver's `Connect`, `Conversation` and `ReturnConversation` and its dispatcher's
-`Report`, as gRPC metadata `authorization: Bearer <token>`, and takes a
-fresh one when the driver sends it (`DriverMessage.token`).
+outside any environment, beside `AGENT_ID` and `AGENT_JOB`, never in
+`AGENT_JOB` or on a command line, in one of two ways (agent_protocol#17):
 
-The harness isn't handed it: the wrapper unsets `AGENT_TOKEN` as soon as
-it has read it and leaves it out of the harness's environment, so no
-child inherits it, and its MCP server reaches the driver through the
-wrapper (below), so the token is in no MCP configuration or command line
-of Claude's. That isn't secrecy from the harness. On Linux,
-`unsetenv` doesn't change `/proc/<pid>/environ` (the block the process was
-started with), and the harness runs as the wrapper's user, so it can read
-the wrapper's `/proc/<wrapper>/environ`, and its memory, if it looks. Treat
-the token as the agent's, which a hostile harness could use for as long
-as it is valid.
+- **`AGENT_TOKEN_FD=<n>`**: a descriptor the wrapper inherits, which it
+  reads to its end and closes. The runner writes the token and closes its
+  own end (the wrapper waits for the end). Standard input will do
+  (`AGENT_TOKEN_FD=0`, when the runner has no other use for it): the
+  wrapper reads nothing else from it, and it is /dev/null after.
+- **`AGENT_TOKEN_FILE=<path>`**: a file the wrapper reads and then deletes.
+  It must be a regular file of the wrapper's user that no one else can
+  read (0600), or the wrapper deletes it unread and won't start (status
+  2), and it should be on a tmpfs (`/run`, `/dev/shm`): one on a disk is
+  taken, with a log line. Until the wrapper has read it, any process of
+  that user can read it too, so make it just before the wrapper starts, in
+  a folder the agents don't share.
+
+Either way the token is the bytes given, less the white space around them
+(a file's last newline). An empty `Job.token` means none: the runner hands
+over nothing, and no call shows a bearer. The wrapper shows it on each call
+it makes for the agent, its driver's `Connect`, `Conversation` and
+`ReturnConversation` and its dispatcher's `Report`, as gRPC metadata
+`authorization: Bearer <token>`, and takes a fresh one when the driver
+sends it (`DriverMessage.token`), as before.
+
+`AGENT_TOKEN` (the token in the environment, as before 0.6) is still taken
+when neither is set, with a log line saying it's deprecated; 0.7 drops it.
+A process's environment as it began stays readable to any process of its
+user (`/proc/<pid>/environ` on Linux, `ps -E`'s `KERN_PROCARGS2` on macOS),
+whatever it unsets, and the harness runs as the wrapper's user: that's why
+the token left it.
+
+The harness isn't handed it: the wrapper unsets the handover's variables
+as soon as it has read them and leaves them out of the harness's
+environment, its MCP server reaches the driver through the wrapper
+(below), so the token is in no MCP configuration or command line of
+Claude's, and:
+
+- **On Linux** the wrapper's first act is `prctl(PR_SET_DUMPABLE, 0)`,
+  before it reads the token. Its `/proc/<pid>` is then root's, and a
+  process of the same user is refused `environ`, `fd`, `mem`, `maps` and
+  the rest that show what it holds (EACCES) and can't ptrace it, so the
+  harness can't take the token from the wrapper's descriptors or memory.
+  `cmdline` and `status` stay readable, as `ps` needs (nothing secret is
+  on the command line). What the wrapper starts (the
+  harness, git, `agent-wrapper mcp`) is dumpable again from its exec, and
+  reads its own `/proc` as before; the wrapper's own reads of
+  `/proc/self` are its own. Root with `CAP_SYS_PTRACE` is refused nothing,
+  so a runner whose agents run as root keeps that capability from them
+  (as the OCI default does). `hidepid=2` on the container's `/proc`, or a
+  user of the harness's own, are a defence beside it.
+- **On macOS** there's no such thing; the handover is what keeps the
+  token: `KERN_PROCARGS2` shows the environment the wrapper began with,
+  which no longer holds it, and reading another process's memory takes the
+  debugger's entitlement (`task_for_pid`) or root.
 
 The wrapper's calls are plaintext HTTP/2 (`http://host:port`, no TLS), so
 the bearer token crosses the network as written. That is fine only over
@@ -238,7 +274,7 @@ driver's own computer, and, when the agent asks before acting
 - `visor` is the only server the wrapper adds, and it takes none of
   Claude's own away: no `--strict-mcp-config`, `--bare` or
   `--setting-sources`, and Claude runs with the wrapper's environment
-  (`HOME`, `CLAUDE_CONFIG_DIR`; less `AGENT_TOKEN`) in the job's working
+  (`HOME`, `CLAUDE_CONFIG_DIR`; less the token's handover) in the job's working
   directory. So Claude loads its user and project MCP servers as it would
   anyway, beside `visor`. In a Shireworks container that is where
   Shireworks' MCP comes from: the container's own Claude configuration,

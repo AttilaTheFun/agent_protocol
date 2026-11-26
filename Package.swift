@@ -36,7 +36,7 @@ let package = Package(
                 swiftSettings: [.swiftLanguageMode(.v6)]),
         // The wrapper: harnesses, the driver link, its own service.
         .target(name: "AgentWrapper",
-                dependencies: ["AgentProtocol",
+                dependencies: ["AgentProtocol", "CAgentPOSIX",
                                .product(name: "GRPCCore", package: "grpc-swift-2"),
                                .product(name: "GRPCNIOTransportHTTP2", package: "grpc-swift-nio-transport")],
                 swiftSettings: strict),

@@ -2,8 +2,8 @@ import Foundation
 import GRPCCore
 import Synchronization
 
-/// The agent's token (Job.token, which its runner hands over in
-/// AGENT_TOKEN): shown on each call the wrapper makes for the agent, to its
+/// The agent's token (Job.token, which its runner hands over on
+/// AGENT_TOKEN_FD or in AGENT_TOKEN_FILE; TokenHandover): shown on each call the wrapper makes for the agent, to its
 /// driver and its dispatcher, as metadata `authorization: Bearer <token>`.
 /// The driver may send a fresh one before it expires (DriverMessage.token):
 /// it is shown from then on. Empty: nothing is shown.
@@ -27,18 +27,18 @@ public final class AgentToken: Sendable {
         held.withLock { $0 = fresh }
     }
 
-    /// AGENT_TOKEN unset in the wrapper's own process, once WrapperOptions
-    /// has read it, so no child the wrapper starts (the harness, git, a
-    /// tool) inherits it, whatever environment it is started with.
+    /// The handover's variables (AGENT_TOKEN_FD, AGENT_TOKEN_FILE and the
+    /// deprecated AGENT_TOKEN) unset in the wrapper's own process, once
+    /// WrapperOptions has read them, so no child the wrapper starts (the
+    /// harness, git, a tool) inherits them, whatever environment it is
+    /// started with.
     ///
-    /// This doesn't hide it from the harness. On Linux, unsetenv changes
-    /// only the C library's copy of the environment: /proc/<wrapper>/environ
-    /// is the block the kernel was given at exec, and still shows the token
-    /// (checked in visor-agent 0.58). The harness runs as the same user, so
-    /// it can read that, and the wrapper's memory, if it looks. The token
-    /// is not handed to the harness; it is not a secret from it.
+    /// Unsetting hides nothing from a process that reads the wrapper's
+    /// environment as it began (/proc/<wrapper>/environ, `ps -E`): only a
+    /// handover outside the environment does (TokenHandover), with, on
+    /// Linux, the process undumpable.
     public static func removeFromEnvironment() {
-        unsetenv("AGENT_TOKEN")
+        for variable in TokenHandover.variables { unsetenv(variable) }
     }
 
     /// The metadata a call carries: the token, or nothing.

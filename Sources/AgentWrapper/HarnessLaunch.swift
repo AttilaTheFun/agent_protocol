@@ -90,12 +90,12 @@ public struct HarnessLaunch: Sendable, Equatable {
         }
     }
 
-    /// The harness's environment: the wrapper's, without the agent's token
-    /// (AGENT_TOKEN), which is the wrapper's to show, not the harness's to
-    /// be handed. The wrapper unsets it too (AgentToken.removeFromEnvironment);
-    /// neither keeps it from a harness that reads /proc/<wrapper>/environ.
+    /// The harness's environment: the wrapper's, without the handover of
+    /// the agent's token (AGENT_TOKEN_FD, AGENT_TOKEN_FILE, AGENT_TOKEN),
+    /// which is the wrapper's to show, not the harness's to be handed. The
+    /// wrapper unsets them too (AgentToken.removeFromEnvironment).
     public static func environment(from wrapper: [String: String]) -> [String: String] {
-        wrapper.filter { $0.key != "AGENT_TOKEN" }
+        wrapper.filter { !TokenHandover.variables.contains($0.key) }
     }
 
     /// This program's own path, for Claude to start it as its MCP server.

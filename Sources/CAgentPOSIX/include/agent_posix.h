@@ -128,4 +128,19 @@ void agent_ignore_broken_pipes(void);
 /// -1 with errno set (ENOTSUP where there is no such thing).
 int agent_original_destination(int socket, char *host, size_t size, unsigned short *port);
 
+/// This process made undumpable (Linux's prctl(PR_SET_DUMPABLE, 0)): its
+/// /proc/<pid> files then belong to root, and a process of the same user
+/// without CAP_SYS_PTRACE is refused environ, fd, mem and maps (EACCES;
+/// cmdline and status stay readable) and can't ptrace it. A program it execs starts dumpable again.
+/// 0, or -1 with errno set (ENOTSUP on macOS, which has no such thing).
+int agent_set_undumpable(void);
+
+/// Whether this process is dumpable (prctl(PR_GET_DUMPABLE)): 1 or 0, or
+/// -1 with errno set (ENOTSUP on macOS).
+int agent_dumpable(void);
+
+/// Whether the file open at `fd` is on a tmpfs (memory, never a disk):
+/// 1 or 0, or -1 with errno set (ENOTSUP on macOS, which has none).
+int agent_on_tmpfs(int fd);
+
 #endif

@@ -172,10 +172,12 @@ public nonisolated struct AgentProtocol_V1_Job: @unchecked Sendable {
 
   /// The agent's own token, minted by the dispatcher for this job
   /// (docs/retiring-multipass.md, section 4): the runner hands it to the
-  /// wrapper in AGENT_TOKEN, never on a command line, and the wrapper shows
-  /// it on each call it makes for the agent, as gRPC metadata
+  /// wrapper on a descriptor (AGENT_TOKEN_FD) or in a 0600 file it deletes
+  /// (AGENT_TOKEN_FILE), never in an environment or on a command line
+  /// (AGENT_TOKEN is deprecated: README, The agent's token), and the wrapper
+  /// shows it on each call it makes for the agent, as gRPC metadata
   /// `authorization: Bearer <token>`. Empty means none (a dispatcher that
-  /// mints none): the runner sets no AGENT_TOKEN, and no call shows a
+  /// mints none): the runner hands over nothing, and no call shows a
   /// bearer.
   public var token: String {
     get {_storage._token}

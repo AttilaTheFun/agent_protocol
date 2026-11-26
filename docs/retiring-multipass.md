@@ -131,7 +131,8 @@ Agreed with Shireworks.
   - Revoked by the session ending or moving back (the server refuses that
     `sub` from then on).
 - **Carried**: in the Job (a new field, `token`), from the dispatcher to the
-  runner, to agent-wrapper (`AGENT_TOKEN`), to Claude's MCP configuration
+  runner, to agent-wrapper (`AGENT_TOKEN_FD` or `AGENT_TOKEN_FILE`, never
+  the environment: agent_protocol#17), to Claude's MCP configuration
   (an `Authorization: Bearer` header). `agent-proxy` passes it through.
 - **Checked** by the server on the driver stream and on its MCP endpoint
   (`/api/v2/mcp`, streamable HTTP), which offers what native sessions
